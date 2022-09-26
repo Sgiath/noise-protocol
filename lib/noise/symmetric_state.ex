@@ -1,35 +1,39 @@
 defmodule Noise.SymmetricState do
+  @moduledoc false
+
   alias Noise.CipherState
+  alias Noise.Protocol
 
-  @enforce_keys [:type, :hashlen, :cipher_state]
-  defstruct [:type, :hashlen, :ck, :h, :cipher_state]
+  @enforce_keys [:protocol, :cipher_state]
+  defstruct [:protocol, :ck, :h, :cipher_state]
 
-  def initialize_symmetric(%__MODULE__{hashlen: hashlen} = state, protocol_name)
+  def initialize(%Protocol{name: protocol_name, hashlen: hashlen} = protocol)
       when byte_size(protocol_name) <= hashlen do
     s = 8 * (hashlen - byte_size(protocol_name))
 
-    do_init(state, <<protocol_name::binary, 0x00::size(s)>>)
+    do_init(protocol, <<protocol_name::binary, 0x00::size(s)>>)
   end
 
-  def initialize_symmetric(%__MODULE__{type: type} = state, protocol_name) do
-    do_init(state, type.hash(protocol_name))
+  def initialize(%Protocol{name: protocol_name} = protocol) do
+    do_init(protocol, Protocol.hash(protocol, protocol_name))
   end
 
-  def mix_key(%__MODULE__{type: type} = state, input_key_material) do
-    {ck, <<temp_k::binary-size(32), _rest::binary>>} = type.hkdf(state.ck, input_key_material, 2)
+  def mix_key(%__MODULE__{protocol: protocol} = state, input_key_material) do
+    {ck, <<temp_k::binary-size(32), _rest::binary>>} =
+      Protocol.hkdf(protocol, state.ck, input_key_material, 2)
 
     state
     |> Map.put(:ck, ck)
     |> Map.update!(:cipher_state, &CipherState.initialize_key(&1, temp_k))
   end
 
-  def mix_hash(%__MODULE__{type: type, h: h} = state, data) do
-    Map.put(state, :h, type.hash(h <> data))
+  def mix_hash(%__MODULE__{protocol: protocol, h: h} = state, data) do
+    Map.put(state, :h, Protocol.hash(protocol, h <> data))
   end
 
-  def mix_key_and_hash(%__MODULE__{type: type} = state, input_key_material) do
+  def mix_key_and_hash(%__MODULE__{protocol: protocol} = state, input_key_material) do
     {ck, temp_h, <<temp_k::binary-size(32), _rest::binary>>} =
-      type.hkdf(state.ck, input_key_material, 3)
+      Protocol.hkdf(protocol, state.ck, input_key_material, 3)
 
     state
     |> Map.put(:ck, ck)
@@ -63,22 +67,24 @@ defmodule Noise.SymmetricState do
     {plaintext, state}
   end
 
-  def split(%__MODULE__{type: type, ck: ck, cipher_state: cipher_state} = state) do
+  def split(%__MODULE__{protocol: protocol, ck: ck} = state) do
     {<<temp_k1::binary-size(32), _rest1::binary>>, <<temp_k2::binary-size(32), _rest2::binary>>} =
-      type.hkdf(ck, <<>>, 2)
+      Protocol.hkdf(protocol, ck, <<>>, 2)
 
-    c1 = %CipherState{type: cipher_state.type}
-    c2 = %CipherState{type: cipher_state.type}
+    c1 = CipherState.initialize(protocol)
+    c2 = CipherState.initialize(protocol)
 
     {{CipherState.initialize_key(c1, temp_k1), CipherState.initialize_key(c2, temp_k2)}, state}
   end
 
   # internal
 
-  defp do_init(state, h) do
-    state
-    |> Map.put(:h, h)
-    |> Map.put(:ck, h)
-    |> Map.update!(:cipher_state, &CipherState.initialize_key(&1, nil))
+  defp do_init(protocol, h) do
+    %__MODULE__{
+      protocol: protocol,
+      cipher_state: CipherState.initialize(protocol),
+      h: h,
+      ck: h
+    }
   end
 end

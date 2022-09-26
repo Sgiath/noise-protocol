@@ -1,6 +1,6 @@
 defmodule Noise.Crypto do
-  def cipher(:aes_gcm), do: Noise.Crypto.Cipher.AesGCM
-  def cipher(:chacha20_poly1305), do: Noise.Crypto.Cipher.Chacha20Poly1305
+  def cipher(:aes_gcm), do: Noise.Crypto.Cipher.AESGCM
+  def cipher(:chacha20_poly1305), do: Noise.Crypto.Cipher.ChaCha20Poly1305
 
   def dh(:x25519), do: Noise.Crypto.DH.X25519
   def dh(:x448), do: Noise.Crypto.DH.X448

@@ -1,16 +1,22 @@
 defmodule Noise.CipherState do
   @moduledoc false
 
-  @enforce_keys [:type]
-  defstruct type: nil, k: nil, n: 0
+  alias Noise.Protocol
+
+  @enforce_keys [:protocol]
+  defstruct protocol: nil, k: nil, n: 0
 
   @type t() :: %__MODULE__{
-          type: module(),
+          protocol: Protocol.t(),
           k: <<_::32, _::_*8>> | nil,
           n: integer()
         }
 
   defguard is_key(k) when is_binary(k) and byte_size(k) == 32
+
+  def initialize(%Protocol{} = protocol) do
+    %__MODULE__{protocol: protocol}
+  end
 
   def initialize_key(%__MODULE__{} = state, key) do
     state
@@ -25,25 +31,25 @@ defmodule Noise.CipherState do
     Map.put(state, :n, nonce)
   end
 
-  def encrypt_with_ad(%__MODULE__{type: type, k: k, n: n} = state, ad, plaintext)
+  def encrypt_with_ad(%__MODULE__{protocol: protocol, k: k, n: n} = state, ad, plaintext)
       when is_key(k) do
-    {type.encrypt(k, n, ad, plaintext), Map.update!(state, :n, &(&1 + 1))}
+    {Protocol.encrypt(protocol, k, n, ad, plaintext), Map.update!(state, :n, &(&1 + 1))}
   end
 
   def encrypt_with_ad(%__MODULE__{} = state, _ad, plaintext) do
     {plaintext, state}
   end
 
-  def decrypt_with_ad(%__MODULE__{type: type, k: k, n: n} = state, ad, ciphertext)
+  def decrypt_with_ad(%__MODULE__{protocol: protocol, k: k, n: n} = state, ad, ciphertext)
       when is_key(k) do
-    {type.decrypt(k, n, ad, ciphertext), Map.update!(state, :n, &(&1 + 1))}
+    {Protocol.decrypt(protocol, k, n, ad, ciphertext), Map.update!(state, :n, &(&1 + 1))}
   end
 
   def decrypt_with_ad(%__MODULE__{} = state, _ad, ciphertext) do
     {ciphertext, state}
   end
 
-  def rekey(%__MODULE__{type: type, k: k} = state) do
-    Map.put(state, :k, type.rekey(k))
+  def rekey(%__MODULE__{protocol: protocol, k: k} = state) do
+    Map.put(state, :k, Protocol.rekey(protocol, k))
   end
 end

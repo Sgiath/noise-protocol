@@ -1,4 +1,4 @@
-defmodule Noise.Crypto.Cipher.AesGCM do
+defmodule Noise.Crypto.Cipher.AESGCM do
   use Noise.Crypto.Cipher
 
   @impl Noise.Crypto.Cipher

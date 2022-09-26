@@ -1,4 +1,4 @@
-defmodule Noise.Crypto.Cipher.ChaCha20Poly1305 do
+defmodule Noise.Crypto.Cipher.ChaChaPoly do
   use Noise.Crypto.Cipher
 
   @impl Noise.Crypto.Cipher
