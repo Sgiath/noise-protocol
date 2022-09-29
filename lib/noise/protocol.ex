@@ -3,8 +3,8 @@ defmodule Noise.Protocol do
 
   alias Noise.Pattern
 
-  @enforce_keys [:name, :cipher, :dh, :hash, :hashlen, :pattern]
-  defstruct [:name, :cipher, :dh, :hash, :hashlen, :pattern, :extensions]
+  @enforce_keys [:name, :cipher, :dh, :dhlen, :hash, :hashlen, :pattern]
+  defstruct [:name, :cipher, :dh, :dhlen, :hash, :hashlen, :pattern, :extensions]
 
   @type t() :: %__MODULE__{
           name: String.t(),
@@ -51,6 +51,7 @@ defmodule Noise.Protocol do
       name: "Noise_#{pattern}_#{dh}_#{cipher}_#{hash}",
       cipher: parse_cipher(cipher),
       dh: parse_dh(dh),
+      dhlen: parse_dh(dh).dhlen(),
       hash: parse_hash(hash),
       hashlen: parse_hash(hash).hashlen(),
       pattern: Pattern.from_name(pattern),

@@ -2,6 +2,9 @@ defmodule Noise.Crypto.DH.X25519 do
   use Noise.Crypto.DH
 
   @impl Noise.Crypto.DH
+  def dhlen, do: 32
+
+  @impl Noise.Crypto.DH
   def generate_keypair do
     {pubkey, seckey} = :crypto.generate_key(:ecdh, :x25519)
     {seckey, pubkey}

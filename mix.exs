@@ -13,11 +13,14 @@ defmodule Noise.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :gen_tcp, :crypto]
+      extra_applications: [:logger, :crypto]
     ]
   end
 
   defp deps do
-    []
+    [
+      {:secp256k1, git: "https://git.sr.ht/~sgiath/secp256k1"},
+      {:enacl, "~> 1.2"}
+    ]
   end
 end

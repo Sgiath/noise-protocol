@@ -53,3 +53,11 @@ defmodule Noise.CipherState do
     Map.put(state, :k, Protocol.rekey(protocol, k))
   end
 end
+
+defimpl Inspect, for: Noise.CipherState do
+  alias Noise.Utils
+
+  def inspect(state, opts) do
+    Inspect.Map.inspect(%{k: Utils.hex(state.k), n: state.n}, opts)
+  end
+end

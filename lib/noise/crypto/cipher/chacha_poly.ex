@@ -3,15 +3,12 @@ defmodule Noise.Crypto.Cipher.ChaChaPoly do
 
   @impl Noise.Crypto.Cipher
   def encrypt(k, n, ad, plaintext) do
-    {ciphertext, tag} =
-      :crypto.crypto_one_time_aead(:chacha20_poly1305, k, nonce(n), plaintext, ad, true)
-
-    ciphertext <> tag
+    :enacl.aead_chacha20poly1305_ietf_encrypt(plaintext, ad, nonce(n), k)
   end
 
   @impl Noise.Crypto.Cipher
   def decrypt(k, n, ad, ciphertext) do
-    :crypto.crypto_one_time_aead(:chacha20_poly1305, k, nonce(n), ciphertext, ad, false)
+    :enacl.aead_chacha20poly1305_ietf_decrypt(ciphertext, ad, nonce(n), k)
   end
 
   defp nonce(n), do: <<0::32, n::little-unsigned-integer-64>>

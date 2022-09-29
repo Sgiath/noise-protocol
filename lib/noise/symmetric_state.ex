@@ -87,4 +87,19 @@ defmodule Noise.SymmetricState do
       ck: h
     }
   end
+
+  def has_key?(%__MODULE__{cipher_state: cs}) do
+    CipherState.has_key?(cs)
+  end
+end
+
+defimpl Inspect, for: Noise.SymmetricState do
+  alias Noise.Utils
+
+  def inspect(state, opts) do
+    Inspect.Map.inspect(
+      %{ck: Utils.hex(state.ck), h: Utils.hex(state.h), cipher_state: state.cipher_state},
+      opts
+    )
+  end
 end
