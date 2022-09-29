@@ -104,3 +104,42 @@ defmodule Noise.Pattern do
     raise ArgumentError, "Pattern #{pattern} is not supported"
   end
 end
+
+defimpl Inspect, for: Noise.Pattern do
+  def inspect(state, _opts) do
+    state.name <> pre_msg(state) <> handshake(state)
+  end
+
+  defp pre_msg(%Noise.Pattern{pre_message: [[], []]}), do: "\n"
+
+  defp pre_msg(%Noise.Pattern{pre_message: [[], recv]}) do
+    """
+    \n  <- #{Enum.join(recv, ", ")}
+      ...
+    """
+  end
+
+  defp pre_msg(%Noise.Pattern{pre_message: [init, []]}) do
+    """
+    \n  -> #{Enum.join(init, ", ")}
+      ...
+    """
+  end
+
+  defp pre_msg(%Noise.Pattern{pre_message: [init, recv]}) do
+    """
+    \n  -> #{Enum.join(init, ", ")}
+      <- #{Enum.join(recv, ", ")}
+      ...
+    """
+  end
+
+  defp handshake(%Noise.Pattern{tokens: tokens}) do
+    tokens
+    |> Enum.map(fn
+      {:ini, t} -> "  -> #{Enum.join(t, ", ")}"
+      {:resp, t} -> "  <- #{Enum.join(t, ", ")}"
+    end)
+    |> Enum.join("\n")
+  end
+end
