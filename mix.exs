@@ -36,7 +36,7 @@ defmodule Noise.MixProject do
     [
       # for secp256k1 curve
       {:lib_secp256k1, "~> 0.4"},
-      # for chacha encryption
+      # for chacha20poly1305 encryption
       {:enacl, "~> 1.2"},
 
       # Development
