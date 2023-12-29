@@ -1,4 +1,6 @@
 defmodule Noise.Crypto.Cipher do
+  alias Noise.Crypto.Cipher
+
   @type key() :: <<_::32, _::_*8>>
   @type nonce() :: integer()
 
@@ -12,10 +14,10 @@ defmodule Noise.Crypto.Cipher do
 
   defmacro __using__(_opts) do
     quote do
-      @behaviour Noise.Crypto.Cipher
+      @behaviour Cipher
 
       def rekey(k) do
-        encrypt(k, Noise.Crypto.Cipher.max_nonce(), <<>>, <<0x00::256>>)
+        encrypt(k, Cipher.max_nonce(), <<>>, <<0x00::256>>)
       end
 
       defoverridable(rekey: 1)

@@ -13,6 +13,6 @@ defmodule Noise.Crypto.DH.Secp256k1 do
 
   @impl Noise.Crypto.DH
   def dh({seckey, _pubkey}, pubkey) do
-    Secp256k1.ecdh(seckey, pubkey)
+    :crypto.compute_key(:ecdh, pubkey, seckey, :secp256k1)
   end
 end
