@@ -19,7 +19,7 @@ defmodule Noise.MixProject do
 
   defp deps do
     [
-      {:secp256k1, git: "https://git.sr.ht/~sgiath/secp256k1"},
+      {:lib_secp256k1, "~> 0.4"},
       {:enacl, "~> 1.2"}
     ]
   end

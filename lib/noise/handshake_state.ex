@@ -5,7 +5,7 @@ defmodule Noise.HandshakeState do
   alias Noise.SymmetricState
 
   @enforce_keys [:protocol]
-  defstruct [:protocol, :initiator, :symetric_state, :message_patterns, :s, :e, :rs, :re]
+  defstruct [:protocol, :initiator, :symmetric_state, :message_patterns, :s, :e, :rs, :re]
 
   def initialize(protocol, initiator, prologue \\ <<>>, s \\ nil, rs \\ nil, e \\ nil, re \\ nil)
 
@@ -69,7 +69,7 @@ defmodule Noise.HandshakeState do
     %__MODULE__{
       protocol: protocol,
       initiator: initiator,
-      symetric_state: symmetric_state,
+      symmetric_state: symmetric_state,
       message_patterns: protocol.pattern.tokens,
       s: s,
       e: e,
@@ -87,8 +87,8 @@ defmodule Noise.HandshakeState do
       Map.get_and_update!(state, :message_patterns, fn [{_type, act} | rest] -> {act, rest} end)
 
     {message, state} = do_write_message(state, act, <<>>)
-    {ciphertext, state} = encrypt_and_hash(state, payload)
-    {message <> ciphertext, state}
+    {cipher_text, state} = encrypt_and_hash(state, payload)
+    {message <> cipher_text, state}
   end
 
   def read_message(%__MODULE__{message_patterns: []} = state, _message) do
@@ -125,8 +125,8 @@ defmodule Noise.HandshakeState do
   end
 
   defp do_write_message(%__MODULE__{s: {_sec, pubkey}} = state, [:s | rest], msg) do
-    {ciphertext, state} = encrypt_and_hash(state, pubkey)
-    do_write_message(state, rest, <<msg::binary, ciphertext::binary>>)
+    {cipher_text, state} = encrypt_and_hash(state, pubkey)
+    do_write_message(state, rest, <<msg::binary, cipher_text::binary>>)
   end
 
   defp do_write_message(%__MODULE__{e: e, re: re} = state, [:ee | rest], msg) do
@@ -227,31 +227,31 @@ defmodule Noise.HandshakeState do
 
   # sub-state functions
 
-  defp has_key?(%__MODULE__{symetric_state: ss}) do
+  defp has_key?(%__MODULE__{symmetric_state: ss}) do
     SymmetricState.has_key?(ss)
   end
 
-  defp mix_key(%__MODULE__{symetric_state: ss} = state, ikm) do
-    %__MODULE__{state | symetric_state: SymmetricState.mix_key(ss, ikm)}
+  defp mix_key(%__MODULE__{symmetric_state: ss} = state, ikm) do
+    %__MODULE__{state | symmetric_state: SymmetricState.mix_key(ss, ikm)}
   end
 
-  defp mix_hash(%__MODULE__{symetric_state: ss} = state, data) do
-    %__MODULE__{state | symetric_state: SymmetricState.mix_hash(ss, data)}
+  defp mix_hash(%__MODULE__{symmetric_state: ss} = state, data) do
+    %__MODULE__{state | symmetric_state: SymmetricState.mix_hash(ss, data)}
   end
 
-  defp encrypt_and_hash(%__MODULE__{symetric_state: ss} = state, plaintext) do
-    {ciphertext, ss} = SymmetricState.encrypt_and_hash(ss, plaintext)
-    {ciphertext, %__MODULE__{state | symetric_state: ss}}
+  defp encrypt_and_hash(%__MODULE__{symmetric_state: ss} = state, plain_text) do
+    {cipher_text, ss} = SymmetricState.encrypt_and_hash(ss, plain_text)
+    {cipher_text, %__MODULE__{state | symmetric_state: ss}}
   end
 
-  defp decrypt_and_hash(%__MODULE__{symetric_state: ss} = state, ciphertext) do
-    {plaintext, ss} = SymmetricState.decrypt_and_hash(ss, ciphertext)
-    {plaintext, %__MODULE__{state | symetric_state: ss}}
+  defp decrypt_and_hash(%__MODULE__{symmetric_state: ss} = state, cipher_text) do
+    {plain_text, ss} = SymmetricState.decrypt_and_hash(ss, cipher_text)
+    {plain_text, %__MODULE__{state | symmetric_state: ss}}
   end
 
-  defp split(%__MODULE__{symetric_state: ss} = state) do
+  defp split(%__MODULE__{symmetric_state: ss} = state) do
     {c, ss} = SymmetricState.split(ss)
-    {c, %__MODULE__{state | symetric_state: ss}}
+    {c, %__MODULE__{state | symmetric_state: ss}}
   end
 end
 
@@ -261,7 +261,7 @@ defimpl Inspect, for: Noise.HandshakeState do
   def inspect(state, opts) do
     Inspect.Map.inspect(
       %{
-        symetric_statae: state.symetric_state,
+        symmetric_state: state.symmetric_state,
         s: %{sec: Utils.hex(elem(state.s, 0)), pub: Utils.hex(elem(state.s, 1))},
         e: %{sec: Utils.hex(elem(state.e, 0)), pub: Utils.hex(elem(state.e, 1))},
         rs: Utils.hex(state.rs),

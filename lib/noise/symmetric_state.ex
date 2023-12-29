@@ -43,28 +43,28 @@ defmodule Noise.SymmetricState do
 
   def get_handshake_hash(%__MODULE__{h: h}), do: h
 
-  def encrypt_and_hash(%__MODULE__{} = state, plaintext) do
-    {ciphertext, cipher_state} =
-      CipherState.encrypt_with_ad(state.cipher_state, state.h, plaintext)
+  def encrypt_and_hash(%__MODULE__{} = state, plain_text) do
+    {cipher_text, cipher_state} =
+      CipherState.encrypt_with_ad(state.cipher_state, state.h, plain_text)
 
     state =
       state
       |> Map.put(:cipher_state, cipher_state)
-      |> mix_hash(ciphertext)
+      |> mix_hash(cipher_text)
 
-    {ciphertext, state}
+    {cipher_text, state}
   end
 
-  def decrypt_and_hash(%__MODULE__{} = state, ciphertext) do
-    {plaintext, cipher_state} =
-      CipherState.decrypt_with_ad(state.cipher_state, state.h, ciphertext)
+  def decrypt_and_hash(%__MODULE__{} = state, cipher_text) do
+    {plain_text, cipher_state} =
+      CipherState.decrypt_with_ad(state.cipher_state, state.h, cipher_text)
 
     state =
       state
       |> Map.put(:cipher_state, cipher_state)
-      |> mix_hash(ciphertext)
+      |> mix_hash(cipher_text)
 
-    {plaintext, state}
+    {plain_text, state}
   end
 
   def split(%__MODULE__{protocol: protocol, ck: ck} = state) do

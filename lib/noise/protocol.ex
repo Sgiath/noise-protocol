@@ -32,11 +32,11 @@ defmodule Noise.Protocol do
   def dh(%__MODULE__{dh: dh}, keypair, pubkey), do: dh.dh(keypair, pubkey)
 
   # Cipher
-  def encrypt(%__MODULE__{cipher: cipher}, k, n, ad, plaintext),
-    do: cipher.encrypt(k, n, ad, plaintext)
+  def encrypt(%__MODULE__{cipher: cipher}, k, n, ad, plain_text),
+    do: cipher.encrypt(k, n, ad, plain_text)
 
-  def decrypt(%__MODULE__{cipher: cipher}, k, n, ad, ciphertext),
-    do: cipher.decrypt(k, n, ad, ciphertext)
+  def decrypt(%__MODULE__{cipher: cipher}, k, n, ad, cipher_text),
+    do: cipher.decrypt(k, n, ad, cipher_text)
 
   def rekey(%__MODULE__{cipher: cipher}, key), do: cipher.rekey(key)
 

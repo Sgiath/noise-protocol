@@ -31,22 +31,22 @@ defmodule Noise.CipherState do
     Map.put(state, :n, nonce)
   end
 
-  def encrypt_with_ad(%__MODULE__{protocol: protocol, k: k, n: n} = state, ad, plaintext)
+  def encrypt_with_ad(%__MODULE__{protocol: protocol, k: k, n: n} = state, ad, plain_text)
       when is_key(k) do
-    {Protocol.encrypt(protocol, k, n, ad, plaintext), Map.update!(state, :n, &(&1 + 1))}
+    {Protocol.encrypt(protocol, k, n, ad, plain_text), Map.update!(state, :n, &(&1 + 1))}
   end
 
-  def encrypt_with_ad(%__MODULE__{} = state, _ad, plaintext) do
-    {plaintext, state}
+  def encrypt_with_ad(%__MODULE__{} = state, _ad, plain_text) do
+    {plain_text, state}
   end
 
-  def decrypt_with_ad(%__MODULE__{protocol: protocol, k: k, n: n} = state, ad, ciphertext)
+  def decrypt_with_ad(%__MODULE__{protocol: protocol, k: k, n: n} = state, ad, cipher_text)
       when is_key(k) do
-    {Protocol.decrypt(protocol, k, n, ad, ciphertext), Map.update!(state, :n, &(&1 + 1))}
+    {Protocol.decrypt(protocol, k, n, ad, cipher_text), Map.update!(state, :n, &(&1 + 1))}
   end
 
-  def decrypt_with_ad(%__MODULE__{} = state, _ad, ciphertext) do
-    {ciphertext, state}
+  def decrypt_with_ad(%__MODULE__{} = state, _ad, cipher_text) do
+    {cipher_text, state}
   end
 
   def rekey(%__MODULE__{protocol: protocol, k: k} = state) do
