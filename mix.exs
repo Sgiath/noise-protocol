@@ -17,7 +17,7 @@ defmodule Noise.MixProject do
       # Docs
       name: "Noise Protocol",
       source_url: "https://github.com/Sgiath/noise-protocol",
-      homepage_url: "https://sgiath.dev/libraries#noise",
+      homepage_url: "https://sgiath.dev/libraries#noise-protocol",
       description: """
       Library implementing Noise protocol
       """,
@@ -35,17 +35,16 @@ defmodule Noise.MixProject do
   defp deps do
     [
       # for secp256k1 curve
-      {:lib_secp256k1, "~> 0.4"},
+      {:lib_secp256k1, "~> 0.6"},
       # for chacha20poly1305 encryption
       {:enacl, "~> 1.2"},
 
       # Development
-      {:ex_check, "~> 0.15", only: [:dev], runtime: false},
+      {:ex_check, "~> 0.16", only: [:dev], runtime: false},
       {:credo, "~> 1.7", only: [:dev], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
-      {:ex_doc, "~> 0.31", only: [:dev], runtime: false},
+      {:ex_doc, "~> 0.36", only: [:dev], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev], runtime: false},
-      {:mix_test_watch, "~> 1.1", only: [:dev], runtime: false}
+      {:mix_test_watch, "~> 1.2", only: [:dev], runtime: false}
     ]
   end
 
