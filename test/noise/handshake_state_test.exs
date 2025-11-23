@@ -56,23 +56,6 @@ defmodule Noise.HandshakeStateTest do
       end
     end
 
-    test "raises ArgumentError when PSK is missing for PSK handshake" do
-      psk_protocol = "Noise_NNpsk0_25519_ChaChaPoly_BLAKE2b"
-
-      assert_raise ArgumentError, "At least one PSK is required for PSK handshake", fn ->
-        HandshakeState.initialize(
-          psk_protocol,
-          true,
-          "",
-          nil,
-          nil,
-          nil,
-          nil,
-          []
-        )
-      end
-    end
-
     test "accepts PSK for PSK handshake" do
       psk_protocol = "Noise_NNpsk0_25519_ChaChaPoly_BLAKE2b"
       psk = <<0::256>>

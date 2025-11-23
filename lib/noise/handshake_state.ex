@@ -35,8 +35,6 @@ defmodule Noise.HandshakeState do
   end
 
   def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, psks) do
-    validate_psk_requirements!(protocol, psks)
-
     symmetric_state = initialize_symmetric_state(protocol, prologue)
 
     {init_keys, resp_keys} = resolve_keys(initiator, s, e, rs, re)
@@ -59,12 +57,6 @@ defmodule Noise.HandshakeState do
       re: re,
       psks: psks
     }
-  end
-
-  defp validate_psk_requirements!(protocol, psks) do
-    if psk_handshake?(protocol) and Enum.empty?(psks) do
-      raise ArgumentError, "At least one PSK is required for PSK handshake"
-    end
   end
 
   defp initialize_symmetric_state(protocol, prologue) do
