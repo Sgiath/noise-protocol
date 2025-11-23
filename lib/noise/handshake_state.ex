@@ -318,13 +318,20 @@ defimpl Inspect, for: Noise.HandshakeState do
     Inspect.Map.inspect(
       %{
         symmetric_state: state.symmetric_state,
-        s: %{sec: Utils.hex(elem(state.s, 0)), pub: Utils.hex(elem(state.s, 1))},
-        e: %{sec: Utils.hex(elem(state.e, 0)), pub: Utils.hex(elem(state.e, 1))},
-        rs: Utils.hex(state.rs),
-        re: Utils.hex(state.re),
+        s: inspect_key(state.s),
+        e: inspect_key(state.e),
+        rs: inspect_binary(state.rs),
+        re: inspect_binary(state.re),
         psks: state.psks
       },
       opts
     )
   end
+
+  defp inspect_key(nil), do: nil
+  defp inspect_key({sec, pub}), do: %{sec: Utils.hex(sec), pub: Utils.hex(pub)}
+
+  defp inspect_binary(nil), do: nil
+  defp inspect_binary(bin) when is_binary(bin), do: Utils.hex(bin)
+  defp inspect_binary(other), do: other
 end
