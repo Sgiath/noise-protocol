@@ -1,5 +1,10 @@
 defmodule Noise.SymmetricState do
-  @moduledoc false
+  @moduledoc """
+  Tracks the symmetric state during a handshake.
+
+  The `SymmetricState` object contains a `CipherState` plus a chaining key `ck` and a handshake hash `h`.
+  It handles mixing keys and hashes as the handshake progresses.
+  """
 
   alias Noise.CipherState
   alias Noise.Protocol

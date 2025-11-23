@@ -1,5 +1,10 @@
 defmodule Noise.Protocol do
-  @moduledoc false
+  @moduledoc """
+  Defines a Noise protocol configuration.
+
+  This struct holds the components that make up a Noise protocol, such as the
+  cipher, DH function, hash function, and the handshake pattern.
+  """
 
   alias Noise.Pattern
 

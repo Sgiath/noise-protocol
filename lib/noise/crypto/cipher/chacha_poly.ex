@@ -1,4 +1,5 @@
 defmodule Noise.Crypto.Cipher.ChaChaPoly do
+  @moduledoc "ChaCha20-Poly1305 Cipher implementation."
   use Noise.Crypto.Cipher
 
   @impl Noise.Crypto.Cipher

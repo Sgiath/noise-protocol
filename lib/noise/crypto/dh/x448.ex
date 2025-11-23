@@ -1,4 +1,5 @@
 defmodule Noise.Crypto.DH.X448 do
+  @moduledoc "X448 Diffie-Hellman implementation."
   use Noise.Crypto.DH
 
   @impl Noise.Crypto.DH

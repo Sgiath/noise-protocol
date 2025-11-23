@@ -1,4 +1,5 @@
 defmodule Noise.Crypto.Hash.Blake2b do
+  @moduledoc "BLAKE2b Hash implementation."
   use Noise.Crypto.Hash
 
   @impl Noise.Crypto.Hash

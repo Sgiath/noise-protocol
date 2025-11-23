@@ -1,7 +1,7 @@
 defmodule Noise.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
 
   def project do
     [
@@ -62,15 +62,35 @@ defmodule Noise.MixProject do
   defp docs do
     [
       authors: ["sgiath <noise@sgiath.dev>"],
-      main: "readme",
-      api_reference: false,
+      main: "Noise",
       extras: [
-        "README.md": [filename: "readme", title: "Overview"],
-        "CHANGELOG.md": [filename: "changelog", title: "Changelog"]
+        "CHANGELOG.md": [filename: "changelog", title: "Changelog"],
+        "README.md": [filename: "readme", title: "Readme"],
+        specification: [url: "https://noiseprotocol.org/noise.html", title: "Specification"]
       ],
       formatters: ["html"],
       source_ref: "v#{@version}",
-      source_url: "https://github.com/Sgiath/noise-protocol"
+      source_url: "https://github.com/Sgiath/noise-protocol",
+      groups_for_modules: groups_for_modules()
+    ]
+  end
+
+  defp groups_for_modules do
+    [
+      Ciphers: [Noise.Crypto.Cipher, Noise.Crypto.Cipher.AESGCM, Noise.Crypto.Cipher.ChaChaPoly],
+      "Diffie-Hellman": [
+        Noise.Crypto.DH,
+        Noise.Crypto.DH.X25519,
+        Noise.Crypto.DH.X448,
+        Noise.Crypto.DH.Secp256k1
+      ],
+      Hashes: [
+        Noise.Crypto.Hash,
+        Noise.Crypto.Hash.Sha256,
+        Noise.Crypto.Hash.Sha512,
+        Noise.Crypto.Hash.Blake2b,
+        Noise.Crypto.Hash.Blake2s
+      ]
     ]
   end
 end

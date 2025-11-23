@@ -1,5 +1,13 @@
 defmodule Noise.HandshakeState do
-  @moduledoc false
+  @moduledoc """
+  Tracks the state of a handshake in progress.
+
+  This struct holds the current state of the handshake protocol, including:
+  - The protocol definition (`Noise.Protocol`)
+  - The symmetric state (`Noise.SymmetricState`)
+  - The keypairs (local and remote, static and ephemeral)
+  - The remaining message patterns to process
+  """
 
   alias Noise.Protocol
   alias Noise.SymmetricState

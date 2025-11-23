@@ -1,4 +1,5 @@
 defmodule Noise.Crypto.DH.Secp256k1 do
+  @moduledoc "Secp256k1 Diffie-Hellman implementation."
   use Noise.Crypto.DH
 
   @dialyzer {:no_return, generate_keypair: 0, dh: 2}

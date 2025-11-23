@@ -1,5 +1,10 @@
 defmodule Noise.CipherState do
-  @moduledoc false
+  @moduledoc """
+  Tracks the state of a symmetric cipher stream.
+
+  A `CipherState` object contains a key `k` (of 32 bytes) and an integer nonce `n` (starting at 0).
+  It is used to encrypt and decrypt messages during the transport phase and within the handshake.
+  """
 
   alias Noise.Protocol
 

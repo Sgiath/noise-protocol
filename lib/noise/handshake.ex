@@ -1,5 +1,10 @@
 defmodule Noise.Handshake do
-  @moduledoc false
+  @moduledoc """
+  Logic for processing handshake steps.
+
+  This module determines the next action (read or write) based on the current `HandshakeState`
+  and delegates to the appropriate functions in `Noise.HandshakeState`.
+  """
 
   alias Noise.HandshakeState
 

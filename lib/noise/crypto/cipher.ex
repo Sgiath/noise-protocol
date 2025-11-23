@@ -1,4 +1,10 @@
 defmodule Noise.Crypto.Cipher do
+  @moduledoc """
+  Behaviour for Cipher functions (AEAD).
+
+  This module defines the interface that all Cipher implementations must follow.
+  It also provides a default implementation for `rekey/1`.
+  """
   alias Noise.Crypto.Cipher
 
   @type key() :: <<_::32, _::_*8>>

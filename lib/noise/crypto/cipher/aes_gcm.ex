@@ -1,4 +1,5 @@
 defmodule Noise.Crypto.Cipher.AESGCM do
+  @moduledoc "AES-GCM-256 Cipher implementation."
   use Noise.Crypto.Cipher
 
   @impl Noise.Crypto.Cipher

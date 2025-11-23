@@ -1,5 +1,10 @@
 defmodule Noise.Pattern do
-  @moduledoc false
+  @moduledoc """
+  Defines a handshake pattern.
+
+  This module handles parsing pattern names (e.g., "IK", "XXpsk2") and defines the sequence
+  of messages and tokens for each pattern.
+  """
 
   @enforce_keys [:name]
   defstruct name: nil, pre_message: [[], []], tokens: []

@@ -1,4 +1,11 @@
 defmodule Noise.Crypto.Hash do
+  @moduledoc """
+  Behaviour for Hash functions.
+
+  This module defines the interface for Hash implementations.
+  It includes callbacks for standard hashing, HMAC, and HKDF.
+  Default implementations for `hkdf` are provided via `__using__/1`.
+  """
   @type hash() :: <<_::32, _::_*8>> | <<_::64, _::_*8>>
 
   @callback hashlen() :: 32 | 64

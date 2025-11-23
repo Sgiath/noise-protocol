@@ -1,4 +1,11 @@
 defmodule Noise.Crypto do
+  @moduledoc """
+  Factory module for retrieving crypto primitive implementations.
+
+  This module is primarily used internally by `Noise.Protocol` to resolve
+  algorithm names (atoms) to their corresponding implementation modules.
+  """
+
   def cipher(:aes_gcm), do: Noise.Crypto.Cipher.AESGCM
   def cipher(:chacha20_poly1305), do: Noise.Crypto.Cipher.ChaCha20Poly1305
 

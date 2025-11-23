@@ -1,4 +1,5 @@
 defmodule Noise.Crypto.Hash.Sha256 do
+  @moduledoc "SHA-256 Hash implementation."
   use Noise.Crypto.Hash
 
   @impl Noise.Crypto.Hash

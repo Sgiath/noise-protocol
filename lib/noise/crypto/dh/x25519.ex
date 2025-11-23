@@ -1,4 +1,5 @@
 defmodule Noise.Crypto.DH.X25519 do
+  @moduledoc "X25519 Diffie-Hellman implementation."
   use Noise.Crypto.DH
 
   @impl Noise.Crypto.DH
