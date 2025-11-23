@@ -2,6 +2,9 @@ defmodule Noise.Vectors.SnowTest do
   use ExUnit.Case, async: true
   alias Noise.VectorRunner
 
+  @moduletag :vectors
+  @moduletag :snow
+
   @vectors_file "test/vectors/snow.json"
   @external_resource @vectors_file
 
@@ -11,12 +14,9 @@ defmodule Noise.Vectors.SnowTest do
     for vector <- vectors do
       name = vector["name"] || vector["protocol_name"] || "unknown"
 
-      @tag :vectors
       test "snow: #{name}" do
         VectorRunner.run_vector(unquote(Macro.escape(vector)))
       end
     end
   end
 end
-
-

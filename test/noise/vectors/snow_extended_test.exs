@@ -6,6 +6,8 @@ defmodule Noise.Vectors.SnowExtendedTest do
   @external_resource @vectors_file
 
   @moduletag :skip
+  @moduletag :vectors
+  @moduletag :snow_extended
 
   if File.exists?(@vectors_file) do
     vectors = VectorRunner.load_vectors_from_file(@vectors_file)
@@ -20,4 +22,3 @@ defmodule Noise.Vectors.SnowExtendedTest do
     end
   end
 end
-
