@@ -12,30 +12,6 @@ defmodule Noise.VectorRunner do
   end
 
   def run_vector(vector) do
-    case skip_reason(vector) do
-      nil -> do_run_vector(vector)
-      _reason -> :ok
-    end
-  end
-
-  def skip_reason(vector) do
-    cond do
-      Map.get(vector, "fail", false) ->
-        IO.inspect("Marked to fail")
-        nil
-
-      String.contains?(vector["protocol_name"], "+") ->
-        "Hybrid keys not yet supported"
-
-      Map.get(vector, "fallback", false) ->
-        "Fallback not supported"
-
-      :otherwise ->
-        nil
-    end
-  end
-
-  defp do_run_vector(vector) do
     protocol_name = vector["protocol_name"]
     prologue = decode_hex(vector["init_prologue"] || "")
 
@@ -226,11 +202,7 @@ defmodule Noise.VectorRunner do
         # X448: Base point is 5
         :crypto.compute_key(:ecdh, <<5, 0::440>>, priv, :x448)
 
-      String.contains?(protocol_name, "secp256k1") ->
-        # Secp256k1
-        Secp256k1.pubkey(priv, :compressed)
-
-      true ->
+      :otherwise ->
         raise "Unknown DH for key derivation in protocol: #{protocol_name}"
     end
   end

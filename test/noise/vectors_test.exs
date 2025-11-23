@@ -21,16 +21,9 @@ defmodule Noise.VectorsTest do
 
       for vector <- vectors do
         name = vector["name"] || vector["protocol_name"] || "unknown"
-        test_name = "#{prefix}: #{name}"
-
-        reason = VectorRunner.skip_reason(vector)
 
         @tag :vectors
-        if reason do
-          @tag skip: reason
-        end
-
-        test test_name do
+        test "#{prefix}: #{name}" do
           VectorRunner.run_vector(unquote(Macro.escape(vector)))
         end
       end

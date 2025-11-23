@@ -18,6 +18,7 @@ defmodule Noise.Crypto.Cipher do
 
       def rekey(k) do
         encrypt(k, Cipher.max_nonce(), <<>>, <<0x00::256>>)
+        |> binary_part(0, 32)
       end
 
       defoverridable(rekey: 1)

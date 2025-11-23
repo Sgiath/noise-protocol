@@ -8,7 +8,8 @@ defmodule Noise.Crypto.DH.Secp256k1 do
 
   @impl Noise.Crypto.DH
   def generate_keypair do
-    Secp256k1.keypair(:compressed)
+    {pubkey, seckey} = :crypto.generate_key(:ecdh, :secp256k1)
+    {seckey, pubkey}
   end
 
   @impl Noise.Crypto.DH
