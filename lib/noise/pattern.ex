@@ -12,7 +12,7 @@ defmodule Noise.Pattern do
         }
 
   def from_name(name) do
-    case Regex.run(~r/^([A-Z]+)(.*)$/, name) do
+    case Regex.run(~r/^([A-Z0-9]+)(.*)$/, name) do
       [_, base_name, modifiers_str] ->
         base_name
         |> get_base_pattern()
@@ -139,6 +139,259 @@ defmodule Noise.Pattern do
 
   defp get_base_pattern("IX") do
     %__MODULE__{name: "IX", tokens: [{:ini, [:e, :s]}, {:resp, [:e, :ee, :se, :s, :es]}]}
+  end
+
+  # Deferred patterns
+
+  # One-way deferred
+  defp get_base_pattern("X1N") do
+    %__MODULE__{
+      name: "X1N",
+      tokens: [{:ini, [:e]}, {:resp, [:e, :ee]}, {:ini, [:s]}, {:resp, [:se]}]
+    }
+  end
+
+  defp get_base_pattern("K1N") do
+    %__MODULE__{
+      name: "K1N",
+      pre_message: [[:s], []],
+      tokens: [{:ini, [:e]}, {:resp, [:e, :ee]}, {:ini, [:se]}]
+    }
+  end
+
+  defp get_base_pattern("I1N") do
+    %__MODULE__{
+      name: "I1N",
+      tokens: [{:ini, [:e, :s]}, {:resp, [:e, :ee]}, {:ini, [:se]}]
+    }
+  end
+
+  # Interactive deferred
+  defp get_base_pattern("NK1") do
+    %__MODULE__{
+      name: "NK1",
+      pre_message: [[], [:s]],
+      tokens: [{:ini, [:e]}, {:resp, [:e, :ee, :es]}]
+    }
+  end
+
+  defp get_base_pattern("NX1") do
+    %__MODULE__{
+      name: "NX1",
+      tokens: [{:ini, [:e]}, {:resp, [:e, :ee, :s]}, {:ini, [:es]}]
+    }
+  end
+
+  defp get_base_pattern("X1K") do
+    %__MODULE__{
+      name: "X1K",
+      pre_message: [[], [:s]],
+      tokens: [
+        {:ini, [:e, :es]},
+        {:resp, [:e, :ee]},
+        {:ini, [:s]},
+        {:resp, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("XK1") do
+    %__MODULE__{
+      name: "XK1",
+      pre_message: [[], [:s]],
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :es]},
+        {:ini, [:s, :se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("X1K1") do
+    %__MODULE__{
+      name: "X1K1",
+      pre_message: [[], [:s]],
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :es]},
+        {:ini, [:s]},
+        {:resp, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("X1X") do
+    %__MODULE__{
+      name: "X1X",
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :s, :es]},
+        {:ini, [:s]},
+        {:resp, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("XX1") do
+    %__MODULE__{
+      name: "XX1",
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :s]},
+        {:ini, [:es, :s, :se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("X1X1") do
+    %__MODULE__{
+      name: "X1X1",
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :s]},
+        {:ini, [:es, :s]},
+        {:resp, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("K1K") do
+    %__MODULE__{
+      name: "K1K",
+      pre_message: [[:s], [:s]],
+      tokens: [
+        {:ini, [:e, :es]},
+        {:resp, [:e, :ee]},
+        {:ini, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("KK1") do
+    %__MODULE__{
+      name: "KK1",
+      pre_message: [[:s], [:s]],
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :se, :es]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("K1K1") do
+    %__MODULE__{
+      name: "K1K1",
+      pre_message: [[:s], [:s]],
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :es]},
+        {:ini, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("K1X") do
+    %__MODULE__{
+      name: "K1X",
+      pre_message: [[:s], []],
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :s, :es]},
+        {:ini, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("KX1") do
+    %__MODULE__{
+      name: "KX1",
+      pre_message: [[:s], []],
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :se, :s]},
+        {:ini, [:es]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("K1X1") do
+    %__MODULE__{
+      name: "K1X1",
+      pre_message: [[:s], []],
+      tokens: [
+        {:ini, [:e]},
+        {:resp, [:e, :ee, :s]},
+        {:ini, [:se, :es]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("I1K") do
+    %__MODULE__{
+      name: "I1K",
+      pre_message: [[], [:s]],
+      tokens: [
+        {:ini, [:e, :es, :s]},
+        {:resp, [:e, :ee]},
+        {:ini, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("IK1") do
+    %__MODULE__{
+      name: "IK1",
+      pre_message: [[], [:s]],
+      tokens: [
+        {:ini, [:e, :s]},
+        {:resp, [:e, :ee, :se, :es]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("I1K1") do
+    %__MODULE__{
+      name: "I1K1",
+      pre_message: [[], [:s]],
+      tokens: [
+        {:ini, [:e, :s]},
+        {:resp, [:e, :ee, :es]},
+        {:ini, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("I1X") do
+    %__MODULE__{
+      name: "I1X",
+      tokens: [
+        {:ini, [:e, :s]},
+        {:resp, [:e, :ee, :s, :es]},
+        {:ini, [:se]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("IX1") do
+    %__MODULE__{
+      name: "IX1",
+      tokens: [
+        {:ini, [:e, :s]},
+        {:resp, [:e, :ee, :se, :s]},
+        {:ini, [:es]}
+      ]
+    }
+  end
+
+  defp get_base_pattern("I1X1") do
+    %__MODULE__{
+      name: "I1X1",
+      tokens: [
+        {:ini, [:e, :s]},
+        {:resp, [:e, :ee, :s]},
+        {:ini, [:se, :es]}
+      ]
+    }
   end
 
   defp get_base_pattern(pattern) do

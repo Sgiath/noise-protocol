@@ -29,7 +29,8 @@ defmodule Noise.HandshakeState do
     initialize(protocol, initiator, prologue, s, rs, e, re, [])
   end
 
-  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, psk) when is_binary(psk) do
+  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, psk)
+      when is_binary(psk) do
     initialize(protocol, initiator, prologue, s, rs, e, re, [psk])
   end
 

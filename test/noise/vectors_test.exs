@@ -13,7 +13,7 @@ defmodule Noise.VectorsTest do
 
   for {file, prefix} <- [
         {@cacophony_vectors, "cacophony"},
-        {@snow_vectors, "snow"},
+        {@snow_vectors, "snow"}
         # {@snow_extended_vectors, "snow-extended"},
       ] do
     if File.exists?(file) do
@@ -29,6 +29,7 @@ defmodule Noise.VectorsTest do
         if reason do
           @tag skip: reason
         end
+
         test test_name do
           VectorRunner.run_vector(unquote(Macro.escape(vector)))
         end

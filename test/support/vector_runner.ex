@@ -30,14 +30,6 @@ defmodule Noise.VectorRunner do
       Map.get(vector, "fallback", false) ->
         "Fallback not supported"
 
-      # Filter deferred patterns like NK1, IX1, etc if not supported by library
-      String.match?(vector["protocol_name"], ~r/Noise_[A-Z]{2}[0-9]/) ->
-        "Deferred pattern not supported"
-
-      # Filter deferred patterns like X1X, I1X, etc if not supported by library
-      String.match?(vector["protocol_name"], ~r/Noise_[A-Z][0-9]/) ->
-        "Deferred pattern not supported"
-
       :otherwise ->
         nil
     end
@@ -62,7 +54,8 @@ defmodule Noise.VectorRunner do
 
     # Verify key derivation
     if resp_static && init_remote_static do
-      assert elem(resp_static, 1) == init_remote_static, "Responder Static Key Derivation Mismatch"
+      assert elem(resp_static, 1) == init_remote_static,
+             "Responder Static Key Derivation Mismatch"
     end
 
     # Initialize States
@@ -91,9 +84,7 @@ defmodule Noise.VectorRunner do
       )
 
     # Determine if One-Way
-    ["Noise", pattern_name | _rest] = String.split(protocol_name, "_")
-    base_pattern = Regex.run(~r/^[A-Z]+/, pattern_name) |> List.first()
-    is_one_way = String.length(base_pattern) == 1
+    is_one_way = Enum.all?(hs_init.protocol.pattern.tokens, fn {role, _} -> role == :ini end)
 
     # Run messages
     run_messages(vector, {:handshake, hs_init}, {:handshake, hs_resp}, :initiator, is_one_way)
