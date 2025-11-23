@@ -8,10 +8,11 @@ defmodule Noise.MixProject do
       # Library
       app: :noise_protocol,
       version: @version,
-      elixir: "~> 1.14",
+      elixir: "~> 1.15",
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
       consolidate_protocols: Mix.env() != :test,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
 
       # Docs
@@ -32,19 +33,19 @@ defmodule Noise.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
-      # for secp256k1 curve
-      {:lib_secp256k1, "~> 0.6"},
-      # for chacha20poly1305 encryption
-      {:enacl, "~> 1.2"},
+      {:lib_secp256k1, "~> 0.7"},
 
       # Development
       {:ex_check, "~> 0.16", only: [:dev], runtime: false},
       {:credo, "~> 1.7", only: [:dev], runtime: false},
-      {:ex_doc, "~> 0.36", only: [:dev], runtime: false},
+      {:ex_doc, "~> 0.39", only: [:dev], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev], runtime: false},
-      {:mix_test_watch, "~> 1.2", only: [:dev], runtime: false}
+      {:mix_test_watch, "~> 1.4", only: [:dev], runtime: false}
     ]
   end
 

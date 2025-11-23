@@ -26,7 +26,7 @@ defmodule Noise do
     {:ok, socket}
   end
 
-  defp hs_init(socket, opts) do
+  defp hs_init(%Socket{} = socket, opts) do
     protocol_name = Keyword.fetch!(opts, :protocol_name)
     prologue = Keyword.get(opts, :prologue, <<>>)
     s = Keyword.get(opts, :s)

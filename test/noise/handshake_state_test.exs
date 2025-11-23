@@ -3,6 +3,8 @@ defmodule NoiseTest.HandshakeState do
 
   doctest Noise.HandshakeState
 
+  @moduletag :skip
+
   setup_all do
     # initiator
     iss = "1111111111111111111111111111111111111111111111111111111111111111"

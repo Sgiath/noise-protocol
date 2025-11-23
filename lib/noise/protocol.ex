@@ -74,8 +74,8 @@ defmodule Noise.Protocol do
 
   defp parse_hash("SHA256"), do: Noise.Crypto.Hash.Sha256
   defp parse_hash("SHA512"), do: Noise.Crypto.Hash.Sha512
-  defp parse_hash("SHA3/256"), do: Noise.Crypto.Hash.Sha3_256
-  defp parse_hash("SHA3/512"), do: Noise.Crypto.Hash.Sha3_512
+  # defp parse_hash("SHA3/256"), do: Noise.Crypto.Hash.Sha3_256
+  # defp parse_hash("SHA3/512"), do: Noise.Crypto.Hash.Sha3_512
   defp parse_hash("BLAKE2s"), do: Noise.Crypto.Hash.Blake2s
   defp parse_hash("BLAKE2b"), do: Noise.Crypto.Hash.Blake2b
   defp parse_hash(hash), do: raise(ArgumentError, "Unsupported Hash type: #{hash}")
