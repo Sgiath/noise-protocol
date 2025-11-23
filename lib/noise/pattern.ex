@@ -4,32 +4,73 @@ defmodule Noise.Pattern do
   @enforce_keys [:name]
   defstruct name: nil, pre_message: [[], []], tokens: []
 
-  @type token() :: :e | :s | :ee | :se | :es | :ss
+  @type token() :: :e | :s | :ee | :se | :es | :ss | :psk
   @type t() :: %__MODULE__{
           name: String.t(),
           pre_message: [[token()]],
           tokens: [{:ini | :resp, [token()]}]
         }
 
+  def from_name(name) do
+    case Regex.run(~r/^([A-Z]+)(.*)$/, name) do
+      [_, base_name, modifiers_str] ->
+        base_name
+        |> get_base_pattern()
+        |> apply_modifiers(name, modifiers_str)
+
+      _ ->
+        raise ArgumentError, "Pattern #{name} is not supported"
+    end
+  end
+
+  defp apply_modifiers(pattern, full_name, "") do
+    %{pattern | name: full_name}
+  end
+
+  defp apply_modifiers(pattern, full_name, modifiers_str) do
+    modifiers = String.split(modifiers_str, "+")
+
+    tokens =
+      Enum.reduce(modifiers, pattern.tokens, fn modifier, tokens ->
+        apply_modifier(modifier, tokens)
+      end)
+
+    %{pattern | name: full_name, tokens: tokens}
+  end
+
+  defp apply_modifier("psk0", tokens) do
+    List.update_at(tokens, 0, fn {role, message_tokens} ->
+      {role, [:psk | message_tokens]}
+    end)
+  end
+
+  defp apply_modifier("psk" <> n, tokens) do
+    index = String.to_integer(n) - 1
+
+    List.update_at(tokens, index, fn {role, message_tokens} ->
+      {role, message_tokens ++ [:psk]}
+    end)
+  end
+
   # One way
-  def from_name("N") do
+  defp get_base_pattern("N") do
     %__MODULE__{name: "N", pre_message: [[], [:s]], tokens: [{:ini, [:e, :es]}]}
   end
 
-  def from_name("K") do
+  defp get_base_pattern("K") do
     %__MODULE__{name: "K", pre_message: [[:s], [:s]], tokens: [{:ini, [:e, :es, :ss]}]}
   end
 
-  def from_name("X") do
+  defp get_base_pattern("X") do
     %__MODULE__{name: "X", pre_message: [[], [:s]], tokens: [{:ini, [:e, :es, :s, :ss]}]}
   end
 
   # Interactive
-  def from_name("NN") do
+  defp get_base_pattern("NN") do
     %__MODULE__{name: "NN", tokens: [{:ini, [:e]}, {:resp, [:e, :ee]}]}
   end
 
-  def from_name("KN") do
+  defp get_base_pattern("KN") do
     %__MODULE__{
       name: "KN",
       pre_message: [[:s], []],
@@ -37,7 +78,7 @@ defmodule Noise.Pattern do
     }
   end
 
-  def from_name("NK") do
+  defp get_base_pattern("NK") do
     %__MODULE__{
       name: "NK",
       pre_message: [[], [:s]],
@@ -45,7 +86,7 @@ defmodule Noise.Pattern do
     }
   end
 
-  def from_name("KK") do
+  defp get_base_pattern("KK") do
     %__MODULE__{
       name: "KK",
       pre_message: [[:s], [:s]],
@@ -53,11 +94,11 @@ defmodule Noise.Pattern do
     }
   end
 
-  def from_name("NX") do
+  defp get_base_pattern("NX") do
     %__MODULE__{name: "NX", tokens: [{:ini, [:e]}, {:resp, [:e, :ee, :s, :es]}]}
   end
 
-  def from_name("KX") do
+  defp get_base_pattern("KX") do
     %__MODULE__{
       name: "KX",
       pre_message: [[:s], []],
@@ -65,15 +106,15 @@ defmodule Noise.Pattern do
     }
   end
 
-  def from_name("XN") do
+  defp get_base_pattern("XN") do
     %__MODULE__{name: "XN", tokens: [{:ini, [:e]}, {:resp, [:e, :ee]}, {:ini, [:s, :se]}]}
   end
 
-  def from_name("IN") do
+  defp get_base_pattern("IN") do
     %__MODULE__{name: "IN", tokens: [{:ini, [:e, :s]}, {:resp, [:e, :ee, :se]}]}
   end
 
-  def from_name("XK") do
+  defp get_base_pattern("XK") do
     %__MODULE__{
       name: "XK",
       pre_message: [[], [:s]],
@@ -81,7 +122,7 @@ defmodule Noise.Pattern do
     }
   end
 
-  def from_name("IK") do
+  defp get_base_pattern("IK") do
     %__MODULE__{
       name: "IK",
       pre_message: [[], [:s]],
@@ -89,18 +130,18 @@ defmodule Noise.Pattern do
     }
   end
 
-  def from_name("XX") do
+  defp get_base_pattern("XX") do
     %__MODULE__{
       name: "XX",
       tokens: [{:ini, [:e]}, {:resp, [:e, :ee, :s, :es]}, {:ini, [:s, :se]}]
     }
   end
 
-  def from_name("IX") do
+  defp get_base_pattern("IX") do
     %__MODULE__{name: "IX", tokens: [{:ini, [:e, :s]}, {:resp, [:e, :ee, :se, :s, :es]}]}
   end
 
-  def from_name(pattern) do
+  defp get_base_pattern(pattern) do
     raise ArgumentError, "Pattern #{pattern} is not supported"
   end
 end

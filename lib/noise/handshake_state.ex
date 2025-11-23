@@ -5,18 +5,41 @@ defmodule Noise.HandshakeState do
   alias Noise.SymmetricState
 
   @enforce_keys [:protocol]
-  defstruct [:protocol, :initiator, :symmetric_state, :message_patterns, :s, :e, :rs, :re]
+  defstruct [:protocol, :initiator, :symmetric_state, :message_patterns, :s, :e, :rs, :re, :psks]
 
-  def initialize(protocol, initiator, prologue \\ <<>>, s \\ nil, rs \\ nil, e \\ nil, re \\ nil)
+  def initialize(
+        protocol,
+        initiator,
+        prologue \\ <<>>,
+        s \\ nil,
+        rs \\ nil,
+        e \\ nil,
+        re \\ nil,
+        psks \\ []
+      )
 
-  def initialize(protocol_name, initiator, prologue, s, rs, e, re)
+  def initialize(protocol_name, initiator, prologue, s, rs, e, re, psks)
       when is_binary(protocol_name) do
     protocol_name
     |> Protocol.from_name()
-    |> initialize(initiator, prologue, s, rs, e, re)
+    |> initialize(initiator, prologue, s, rs, e, re, psks)
   end
 
-  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re) do
+  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, nil) do
+    initialize(protocol, initiator, prologue, s, rs, e, re, [])
+  end
+
+  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, psk) when is_binary(psk) do
+    initialize(protocol, initiator, prologue, s, rs, e, re, [psk])
+  end
+
+  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, psks) do
+    is_psk = is_psk_handshake?(protocol)
+
+    if is_psk and Enum.empty?(psks) do
+      raise ArgumentError, "At least one PSK is required for PSK handshake"
+    end
+
     symmetric_state =
       protocol
       |> SymmetricState.initialize()
@@ -31,7 +54,8 @@ defmodule Noise.HandshakeState do
 
         [:e] ->
           key = if initiator, do: elem(e, 1), else: re
-          SymmetricState.mix_hash(symmetric_state, key)
+          ss = SymmetricState.mix_hash(symmetric_state, key)
+          if is_psk, do: SymmetricState.mix_key(ss, key), else: ss
 
         [:s] ->
           key = if initiator, do: elem(s, 1), else: rs
@@ -40,9 +64,9 @@ defmodule Noise.HandshakeState do
         [:e, :s] ->
           [key_e, key_s] = if initiator, do: [elem(e, 1), elem(s, 1)], else: [re, rs]
 
-          symmetric_state
-          |> SymmetricState.mix_hash(key_e)
-          |> SymmetricState.mix_hash(key_s)
+          ss = SymmetricState.mix_hash(symmetric_state, key_e)
+          ss = if is_psk, do: SymmetricState.mix_key(ss, key_e), else: ss
+          SymmetricState.mix_hash(ss, key_s)
       end
 
     symmetric_state =
@@ -52,7 +76,8 @@ defmodule Noise.HandshakeState do
 
         [:e] ->
           key = if initiator, do: re, else: elem(e, 1)
-          SymmetricState.mix_hash(symmetric_state, key)
+          ss = SymmetricState.mix_hash(symmetric_state, key)
+          if is_psk, do: SymmetricState.mix_key(ss, key), else: ss
 
         [:s] ->
           key = if initiator, do: rs, else: elem(s, 1)
@@ -61,9 +86,9 @@ defmodule Noise.HandshakeState do
         [:e, :s] ->
           [key_e, key_s] = if initiator, do: [re, rs], else: [elem(e, 1), elem(s, 1)]
 
-          symmetric_state
-          |> SymmetricState.mix_hash(key_e)
-          |> SymmetricState.mix_hash(key_s)
+          ss = SymmetricState.mix_hash(symmetric_state, key_e)
+          ss = if is_psk, do: SymmetricState.mix_key(ss, key_e), else: ss
+          SymmetricState.mix_hash(ss, key_s)
       end
 
     %__MODULE__{
@@ -74,7 +99,8 @@ defmodule Noise.HandshakeState do
       s: s,
       e: e,
       rs: rs,
-      re: re
+      re: re,
+      psks: psks
     }
   end
 
@@ -112,16 +138,24 @@ defmodule Noise.HandshakeState do
   defp do_write_message(%__MODULE__{e: nil} = state, [:e | rest], msg) do
     {_sec, pubkey} = e = Protocol.generate_keypair(state.protocol)
 
-    state
-    |> Map.put(:e, e)
-    |> mix_hash(pubkey)
-    |> do_write_message(rest, <<msg::binary, pubkey::binary>>)
+    state =
+      state
+      |> Map.put(:e, e)
+      |> mix_hash(pubkey)
+
+    state = if is_psk_handshake?(state.protocol), do: mix_key(state, pubkey), else: state
+
+    do_write_message(state, rest, <<msg::binary, pubkey::binary>>)
   end
 
   defp do_write_message(%__MODULE__{e: {_sec, pubkey}} = state, [:e | rest], msg) do
-    state
-    |> mix_hash(pubkey)
-    |> do_write_message(rest, <<msg::binary, pubkey::binary>>)
+    state =
+      state
+      |> mix_hash(pubkey)
+
+    state = if is_psk_handshake?(state.protocol), do: mix_key(state, pubkey), else: state
+
+    do_write_message(state, rest, <<msg::binary, pubkey::binary>>)
   end
 
   defp do_write_message(%__MODULE__{s: {_sec, pubkey}} = state, [:s | rest], msg) do
@@ -165,15 +199,26 @@ defmodule Noise.HandshakeState do
     |> do_write_message(rest, msg)
   end
 
+  defp do_write_message(%__MODULE__{psks: [psk | psks]} = state, [:psk | rest], msg) do
+    state
+    |> Map.put(:psks, psks)
+    |> mix_key_and_hash(psk)
+    |> do_write_message(rest, msg)
+  end
+
   defp do_write_message(%__MODULE__{} = state, [], msg), do: {msg, state}
 
   defp do_read_message(%__MODULE__{re: nil} = state, [:e | rest], msg) do
     <<re::binary-size(state.protocol.dhlen), msg::binary>> = msg
 
-    state
-    |> Map.put(:re, re)
-    |> mix_hash(re)
-    |> do_read_message(rest, msg)
+    state =
+      state
+      |> Map.put(:re, re)
+      |> mix_hash(re)
+
+    state = if is_psk_handshake?(state.protocol), do: mix_key(state, re), else: state
+
+    do_read_message(state, rest, msg)
   end
 
   defp do_read_message(%__MODULE__{rs: nil} = state, [:s | rest], msg) do
@@ -223,6 +268,13 @@ defmodule Noise.HandshakeState do
     |> do_read_message(rest, msg)
   end
 
+  defp do_read_message(%__MODULE__{psks: [psk | psks]} = state, [:psk | rest], msg) do
+    state
+    |> Map.put(:psks, psks)
+    |> mix_key_and_hash(psk)
+    |> do_read_message(rest, msg)
+  end
+
   defp do_read_message(%__MODULE__{} = state, [], msg), do: {msg, state}
 
   # sub-state functions
@@ -239,6 +291,10 @@ defmodule Noise.HandshakeState do
     %__MODULE__{state | symmetric_state: SymmetricState.mix_hash(ss, data)}
   end
 
+  defp mix_key_and_hash(%__MODULE__{symmetric_state: ss} = state, ikm) do
+    %__MODULE__{state | symmetric_state: SymmetricState.mix_key_and_hash(ss, ikm)}
+  end
+
   defp encrypt_and_hash(%__MODULE__{symmetric_state: ss} = state, plain_text) do
     {cipher_text, ss} = SymmetricState.encrypt_and_hash(ss, plain_text)
     {cipher_text, %__MODULE__{state | symmetric_state: ss}}
@@ -253,6 +309,12 @@ defmodule Noise.HandshakeState do
     {c, ss} = SymmetricState.split(ss)
     {c, %__MODULE__{state | symmetric_state: ss}}
   end
+
+  defp is_psk_handshake?(protocol) do
+    protocol.pattern.tokens
+    |> Enum.flat_map(fn {_role, tokens} -> tokens end)
+    |> Enum.member?(:psk)
+  end
 end
 
 defimpl Inspect, for: Noise.HandshakeState do
@@ -265,7 +327,8 @@ defimpl Inspect, for: Noise.HandshakeState do
         s: %{sec: Utils.hex(elem(state.s, 0)), pub: Utils.hex(elem(state.s, 1))},
         e: %{sec: Utils.hex(elem(state.e, 0)), pub: Utils.hex(elem(state.e, 1))},
         rs: Utils.hex(state.rs),
-        re: Utils.hex(state.re)
+        re: Utils.hex(state.re),
+        psks: state.psks
       },
       opts
     )
