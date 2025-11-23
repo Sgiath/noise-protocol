@@ -34,17 +34,18 @@ defmodule Noise.PatternTest do
       # -> e
       # <- e, ee, s, es
       # -> s, se
-      
+
       # Modified XXpsk2:
       # -> e
       # <- e, ee, s, es, psk
       # -> s, se
-      
+
       expected_tokens = [
         {:ini, [:e]},
         {:resp, [:e, :ee, :s, :es, :psk]},
         {:ini, [:s, :se]}
       ]
+
       assert pattern.tokens == expected_tokens
     end
 
@@ -52,7 +53,7 @@ defmodule Noise.PatternTest do
       # "NNpsk0+psk2" -> psk at msg 0 (start) and msg 1 (end)
       # psk0 -> prepend to msg 0
       # psk2 -> append to msg 1 (index 1)
-      
+
       pattern = Pattern.from_name("NNpsk0+psk2")
       assert pattern.name == "NNpsk0+psk2"
       assert pattern.tokens == [{:ini, [:psk, :e]}, {:resp, [:e, :ee, :psk]}]
@@ -63,14 +64,13 @@ defmodule Noise.PatternTest do
         Pattern.from_name("ZZ")
       end
     end
-    
+
     test "raises ArgumentError (or matches regex but fails later) for weird format" do
-       # The regex is ^([A-Z0-9]+)(.*)$, so "noise" matches base="noise", mods=""
-       # get_base_pattern("noise") will raise
-       assert_raise ArgumentError, "Pattern noise is not supported", fn ->
-         Pattern.from_name("noise")
-       end
+      # The regex is ^([A-Z0-9]+)(.*)$, so "noise" matches base="noise", mods=""
+      # get_base_pattern("noise") will raise
+      assert_raise ArgumentError, "Pattern noise is not supported", fn ->
+        Pattern.from_name("noise")
+      end
     end
   end
 end
-

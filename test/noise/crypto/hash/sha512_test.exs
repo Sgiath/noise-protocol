@@ -17,4 +17,3 @@ defmodule NoiseTest.Crypto.Hash.Sha512 do
     assert byte_size(h) == 64
   end
 end
-

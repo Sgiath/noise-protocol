@@ -42,10 +42,10 @@ defmodule NoiseTest.CipherState do
 
     # First encrypt to get valid ciphertext
     {ciphertext, state} = CipherState.encrypt_with_ad(state, "", "plaintext")
-    
+
     # Reset nonce to 0 for decryption to match encryption
     state = CipherState.set_nonce(state, 0)
-    
+
     {plaintext, state_next} = CipherState.decrypt_with_ad(state, "", ciphertext)
     assert plaintext == "plaintext"
     assert state_next.n == 1
@@ -54,11 +54,12 @@ defmodule NoiseTest.CipherState do
   test "passthrough when no key", %{protocol: protocol} do
     state = CipherState.initialize(protocol)
     # No key set
-    
+
     {ciphertext, state_next} = CipherState.encrypt_with_ad(state, "ad", "plaintext")
     assert ciphertext == "plaintext"
-    assert state_next == state # State shouldn't change (nonce shouldn't increment)
-    
+    # State shouldn't change (nonce shouldn't increment)
+    assert state_next == state
+
     {plaintext, state_next2} = CipherState.decrypt_with_ad(state, "ad", "ciphertext")
     assert plaintext == "ciphertext"
     assert state_next2 == state

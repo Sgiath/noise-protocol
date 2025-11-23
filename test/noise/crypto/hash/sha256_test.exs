@@ -23,4 +23,3 @@ defmodule NoiseTest.Crypto.Hash.Sha256 do
     assert Sha256.hash("") == expected
   end
 end
-

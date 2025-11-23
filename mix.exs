@@ -38,9 +38,6 @@ defmodule Noise.MixProject do
 
   defp deps do
     [
-      {:lib_secp256k1, "~> 0.7"},
-
-      # Development
       {:ex_check, "~> 0.16", only: [:dev], runtime: false},
       {:credo, "~> 1.7", only: [:dev], runtime: false},
       {:ex_doc, "~> 0.39", only: [:dev], runtime: false},

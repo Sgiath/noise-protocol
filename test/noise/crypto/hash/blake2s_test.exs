@@ -17,4 +17,3 @@ defmodule NoiseTest.Crypto.Hash.Blake2s do
     assert byte_size(h) == 32
   end
 end
-

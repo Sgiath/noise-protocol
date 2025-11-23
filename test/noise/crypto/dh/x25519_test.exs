@@ -26,4 +26,3 @@ defmodule NoiseTest.Crypto.DH.X25519 do
     assert byte_size(s1) == 32
   end
 end
-

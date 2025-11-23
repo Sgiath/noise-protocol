@@ -1,5 +1,5 @@
 defmodule Noise.VectorsTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   alias Noise.VectorRunner
 

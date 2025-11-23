@@ -26,4 +26,3 @@ defmodule NoiseTest.Crypto.DH.X448 do
     assert byte_size(s1) == 56
   end
 end
-

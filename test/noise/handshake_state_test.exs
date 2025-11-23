@@ -93,4 +93,3 @@ defmodule Noise.HandshakeStateTest do
     end
   end
 end
-

@@ -37,4 +37,3 @@ defmodule NoiseTest.Crypto.Cipher.AESGCM do
     assert AESGCM.decrypt(k, n, "ad2", cipher_text) == :error
   end
 end
-
