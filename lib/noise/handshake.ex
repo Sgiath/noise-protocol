@@ -6,28 +6,28 @@ defmodule Noise.Handshake do
   def next_step(state, message \\ <<>>)
 
   def next_step(
-        %HandshakeState{initiator: true, message_patterns: [{:ini, _tokens}]} = state,
+        %HandshakeState{initiator: true, message_patterns: [{:ini, _tokens} | _]} = state,
         message
       ) do
     HandshakeState.write_message(state, message)
   end
 
   def next_step(
-        %HandshakeState{initiator: false, message_patterns: [{:ini, _tokens}]} = state,
+        %HandshakeState{initiator: false, message_patterns: [{:ini, _tokens} | _]} = state,
         message
       ) do
     HandshakeState.read_message(state, message)
   end
 
   def next_step(
-        %HandshakeState{initiator: true, message_patterns: [{:resp, _tokens}]} = state,
+        %HandshakeState{initiator: true, message_patterns: [{:resp, _tokens} | _]} = state,
         message
       ) do
     HandshakeState.read_message(state, message)
   end
 
   def next_step(
-        %HandshakeState{initiator: false, message_patterns: [{:resp, _tokens}]} = state,
+        %HandshakeState{initiator: false, message_patterns: [{:resp, _tokens} | _]} = state,
         message
       ) do
     HandshakeState.write_message(state, message)
