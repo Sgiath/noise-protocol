@@ -211,7 +211,8 @@ defmodule Noise.HandshakeState do
   defp do_write_message(%__MODULE__{} = state, [], msg), do: {msg, state}
 
   defp do_read_message(%__MODULE__{re: nil} = state, [:e | rest], msg) do
-    <<re::binary-size(state.protocol.dhlen), msg::binary>> = msg
+    dhlen = state.protocol.dhlen
+    <<re::binary-size(^dhlen), msg::binary>> = msg
 
     state =
       state
@@ -225,7 +226,7 @@ defmodule Noise.HandshakeState do
 
   defp do_read_message(%__MODULE__{rs: nil} = state, [:s | rest], msg) do
     len = if has_key?(state), do: state.protocol.dhlen + 16, else: state.protocol.dhlen
-    <<temp::binary-size(len), msg::binary>> = msg
+    <<temp::binary-size(^len), msg::binary>> = msg
 
     {rs, state} = decrypt_and_hash(state, temp)
 

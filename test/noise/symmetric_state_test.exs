@@ -18,7 +18,7 @@ defmodule NoiseTest.SymmetricState do
 
     # Check if first bytes match protocol name
     name_len = byte_size(protocol.name)
-    <<name::binary-size(name_len), _rest::binary>> = state.h
+    <<name::binary-size(^name_len), _rest::binary>> = state.h
     assert name == protocol.name
   end
 

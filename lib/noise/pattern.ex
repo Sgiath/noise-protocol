@@ -436,11 +436,11 @@ defimpl Inspect, for: Noise.Pattern do
   defp handshake(%Noise.Pattern{tokens: tokens}) do
     Enum.map_join(
       tokens,
+      "\n",
       fn
         {:ini, t} -> "  -> #{Enum.join(t, ", ")}"
         {:resp, t} -> "  <- #{Enum.join(t, ", ")}"
-      end,
-      "\n"
+      end
     )
   end
 end

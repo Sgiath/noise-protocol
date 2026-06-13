@@ -13,7 +13,7 @@ defmodule Noise.Crypto.Cipher.AESGCM do
   @impl Noise.Crypto.Cipher
   def decrypt(k, n, ad, cipher_text) do
     cipher_len = byte_size(cipher_text) - 16
-    <<cipher::binary-size(cipher_len), tag::binary-size(16)>> = cipher_text
+    <<cipher::binary-size(^cipher_len), tag::binary-size(16)>> = cipher_text
 
     :crypto.crypto_one_time_aead(:aes_256_gcm, k, nonce(n), cipher, ad, tag, false)
   end
