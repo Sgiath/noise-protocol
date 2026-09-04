@@ -3,29 +3,38 @@
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-unstable";
-    parts.url = "github:hercules-ci/flake-parts";
+    expert.url = "github:expert-lsp/expert";
   };
 
-  outputs = {parts, ...} @ inputs:
-    parts.lib.mkFlake {inherit inputs;} {
-      systems = ["x86_64-linux"];
-      perSystem = {pkgs, ...}: let
-        beamPackages = pkgs.beam_minimal.packages.erlang_29;
-        elixir = beamPackages.elixir_1_20;
-      in {
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            elixir
-            git
-            autoreconfHook
-            libsodium
-          ];
+  outputs =
+    { nixpkgs, expert, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = import nixpkgs { inherit system; };
+      beamPackages = pkgs.beamMinimal29Packages.overrideScope (
+        _final: prev: {
+          elixir = prev.elixir_1_20;
+        }
+      );
+    in
+    {
+      devShells.${system}.default = pkgs.mkShell {
+        packages = with pkgs; [
+          beamPackages.elixir
+          git
+          autoreconfHook
+          libsodium
 
-          env = {
-            MIX_OS_DEPS_COMPILE_PARTITION_COUNT = "16";
-            ERL_AFLAGS = "+pc unicode -kernel shell_history enabled";
-            ELIXIR_ERL_OPTIONS = "+sssdio 128";
-          };
+          # tooling
+          (expert.packages.${system}.default.override { inherit beamPackages; })
+          nixd
+          nixfmt
+        ];
+
+        env = {
+          MIX_OS_DEPS_COMPILE_PARTITION_COUNT = "16";
+          ERL_AFLAGS = "+pc unicode -kernel shell_history enabled";
+          ELIXIR_ERL_OPTIONS = "+sssdio 128";
         };
       };
     };

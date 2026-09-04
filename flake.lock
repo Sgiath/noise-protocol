@@ -1,13 +1,106 @@
 {
   "nodes": {
+    "beam-flakes": {
+      "inputs": {
+        "flake-parts": [
+          "expert",
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "expert",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783010257,
+        "narHash": "sha256-9nGuCa35Z1lIKy1TA4FGewWeeMCyOCOFwU8YJtBa7w8=",
+        "owner": "elixir-tools",
+        "repo": "nix-beam-flakes",
+        "rev": "b54efec6163adf3157dbfcee28d70fd990ae4ad2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "elixir-tools",
+        "repo": "nix-beam-flakes",
+        "type": "github"
+      }
+    },
+    "expert": {
+      "inputs": {
+        "beam-flakes": "beam-flakes",
+        "flake-parts": "flake-parts",
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1788533326,
+        "narHash": "sha256-qP+lpapJsXhPBWJRnGYRlV02F0pytWomiubZDrFUBx4=",
+        "owner": "expert-lsp",
+        "repo": "expert",
+        "rev": "2afc03ce8ce4c37fe93a369ec39d4140859e4b48",
+        "type": "github"
+      },
+      "original": {
+        "owner": "expert-lsp",
+        "repo": "expert",
+        "type": "github"
+      }
+    },
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": "nixpkgs-lib"
+      },
+      "locked": {
+        "lastModified": 1782949081,
+        "narHash": "sha256-vp6Y/Grm98ESt6ceOkWiHWyZRDV3J1RID4w+6NWK9yA=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "17c9d6cdfc60c64f4ee8d306f9bc0b4ccb51481e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1781074563,
-        "narHash": "sha256-md8WlXOlfnIeHeOScMTTHFyf2d6iaTwPl2apR5EQ3P4=",
-        "owner": "NixOS",
+        "lastModified": 1783776592,
+        "narHash": "sha256-UgCQzxeWI75XM8G+hPrPh+MKzEPjG3SpAj7dtqSbksA=",
+        "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "9ae611a455b90cf061d8f332b977e387bda8e1ca",
+        "rev": "e7a3ca8092b61ff85b6a45bf863ea2b2d6a661b3",
         "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-lib": {
+      "locked": {
+        "lastModified": 1782614948,
+        "narHash": "sha256-ePjCwr1sNm9NYUqywL7QfK3JnlS015msC+eBu2zKlp8=",
+        "owner": "nix-community",
+        "repo": "nixpkgs.lib",
+        "rev": "db3f255737b94216eb71cce308e2912cf6bc2d7c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "nixpkgs.lib",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1788404924,
+        "narHash": "sha256-gxryTzdoDQLrvPdYp8cSbxXpB/LDhaQhiJFCmkqVugw=",
+        "rev": "0968519e14f7aa7d3e9b389682bd74d2b51c8ce8",
+        "type": "tarball",
+        "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1066703.0968519e14f7/nixexprs.tar.xz"
       },
       "original": {
         "id": "nixpkgs",
@@ -15,43 +108,10 @@
         "type": "indirect"
       }
     },
-    "nixpkgs-lib": {
-      "locked": {
-        "lastModified": 1777168982,
-        "narHash": "sha256-GOkGPcboWE9BmGCRMLX3worL4EMnsnG8MyKmXNeYuhQ=",
-        "owner": "nix-community",
-        "repo": "nixpkgs.lib",
-        "rev": "f5901329dade4a6ea039af1433fb087bd9c1fe14",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-community",
-        "repo": "nixpkgs.lib",
-        "type": "github"
-      }
-    },
-    "parts": {
-      "inputs": {
-        "nixpkgs-lib": "nixpkgs-lib"
-      },
-      "locked": {
-        "lastModified": 1778716662,
-        "narHash": "sha256-m1Yf0wZ8j1OHjTc2UwHwyQRSnNeSgLJOd7q5Y45hzi4=",
-        "owner": "hercules-ci",
-        "repo": "flake-parts",
-        "rev": "f7c1a2d347e4c52d5fb8d10cb4d94b5884e546fb",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hercules-ci",
-        "repo": "flake-parts",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs",
-        "parts": "parts"
+        "expert": "expert",
+        "nixpkgs": "nixpkgs_2"
       }
     }
   },
