@@ -1,21 +1,26 @@
 defmodule Noise.Pattern do
   @moduledoc """
-  Defines a handshake pattern.
+  A handshake pattern (spec §7): pre-messages and message token sequences.
 
-  This module handles parsing pattern names (e.g., "IK", "XXpsk2") and defines the sequence
-  of messages and tokens for each pattern.
+  `from_name/1` resolves a pattern name such as `"IK"`, `"XXpsk2"` or
+  `"NNpsk0+psk2"` — every one-way, fundamental and deferred pattern from
+  spec §7.4-§7.6 plus the `pskN` modifiers of §9.4. Unknown patterns and
+  invalid modifiers (`psk9` on a two-message pattern, `fallback`, …) raise
+  `ArgumentError`.
   """
 
   @enforce_keys [:name]
   defstruct name: nil, pre_message: [[], []], tokens: []
 
   @type token() :: :e | :s | :ee | :se | :es | :ss | :psk
+  @type role() :: :ini | :resp
   @type t() :: %__MODULE__{
           name: String.t(),
           pre_message: [[token()]],
-          tokens: [{:ini | :resp, [token()]}]
+          tokens: [{role(), [token()]}]
         }
 
+  @spec from_name(String.t()) :: t()
   def from_name(name) do
     case Regex.run(~r/^([A-Z0-9]+)(.*)$/, name) do
       [_, base_name, modifiers_str] ->
@@ -28,34 +33,58 @@ defmodule Noise.Pattern do
     end
   end
 
+  @doc "Whether any message carries a `psk` token (spec §9.2 changes `e` handling)."
+  @spec psk?(t()) :: boolean()
+  def psk?(%__MODULE__{tokens: tokens}), do: Enum.any?(tokens, fn {_role, t} -> :psk in t end)
+
+  @doc "Number of `psk` tokens, i.e. the number of pre-shared keys each party needs."
+  @spec psk_count(t()) :: non_neg_integer()
+  def psk_count(%__MODULE__{tokens: tokens}) do
+    tokens |> Enum.flat_map(fn {_role, t} -> t end) |> Enum.count(&(&1 == :psk))
+  end
+
+  @doc "Whether `role` sends `token` (`:e` or `:s`) in one of its handshake messages."
+  @spec transmits?(t(), role(), :e | :s) :: boolean()
+  def transmits?(%__MODULE__{tokens: tokens}, role, token) do
+    Enum.any?(tokens, fn {r, t} -> r == role and token in t end)
+  end
+
+  @doc "Whether `role`'s `token` (`:e` or `:s`) is a pre-message, known to the peer up front."
+  @spec pre_shares?(t(), role(), :e | :s) :: boolean()
+  def pre_shares?(%__MODULE__{pre_message: [ini_pre, _]}, :ini, token), do: token in ini_pre
+  def pre_shares?(%__MODULE__{pre_message: [_, resp_pre]}, :resp, token), do: token in resp_pre
+
   defp apply_modifiers(pattern, full_name, "") do
     %{pattern | name: full_name}
   end
 
   defp apply_modifiers(pattern, full_name, modifiers_str) do
-    modifiers = String.split(modifiers_str, "+")
-
     tokens =
-      Enum.reduce(modifiers, pattern.tokens, fn modifier, tokens ->
-        apply_modifier(modifier, tokens)
-      end)
+      modifiers_str
+      |> String.split("+")
+      |> Enum.reduce(pattern.tokens, &apply_modifier(&1, &2, full_name))
 
     %{pattern | name: full_name, tokens: tokens}
   end
 
-  defp apply_modifier("psk0", tokens) do
-    List.update_at(tokens, 0, fn {role, message_tokens} ->
-      {role, [:psk | message_tokens]}
-    end)
+  # psk0 prepends to the first message; pskN (N >= 1) appends to the Nth message (spec §9.4)
+  defp apply_modifier("psk" <> n, tokens, full_name) do
+    with {i, ""} <- Integer.parse(n), true <- Integer.to_string(i) == n and i <= length(tokens) do
+      insert_psk(tokens, i)
+    else
+      _ -> raise ArgumentError, "Modifier psk#{n} is out of range for pattern #{full_name}"
+    end
   end
 
-  defp apply_modifier("psk" <> n, tokens) do
-    index = String.to_integer(n) - 1
-
-    List.update_at(tokens, index, fn {role, message_tokens} ->
-      {role, message_tokens ++ [:psk]}
-    end)
+  defp apply_modifier(modifier, _tokens, full_name) do
+    raise ArgumentError, "Modifier #{modifier} in pattern #{full_name} is not supported"
   end
+
+  defp insert_psk(tokens, 0),
+    do: List.update_at(tokens, 0, fn {role, t} -> {role, [:psk | t]} end)
+
+  defp insert_psk(tokens, i),
+    do: List.update_at(tokens, i - 1, fn {role, t} -> {role, t ++ [:psk]} end)
 
   # One way
   defp get_base_pattern("N") do
@@ -405,42 +434,20 @@ defmodule Noise.Pattern do
 end
 
 defimpl Inspect, for: Noise.Pattern do
-  def inspect(state, _opts) do
-    state.name <> pre_msg(state) <> handshake(state)
+  # e.g. #Noise.Pattern<IK: <- s ... -> e, es, s, ss | <- e, ee, se>
+  def inspect(%Noise.Pattern{name: name, pre_message: pre, tokens: tokens}, _opts) do
+    pre_messages =
+      pre
+      |> Enum.zip([:ini, :resp])
+      |> Enum.reject(fn {t, _} -> t == [] end)
+      |> Enum.map_join(" ", fn {t, role} -> message(role, t) end)
+
+    messages = Enum.map_join(tokens, " | ", fn {role, t} -> message(role, t) end)
+    prefix = if pre_messages == "", do: "", else: pre_messages <> " ... "
+
+    "#Noise.Pattern<" <> name <> ": " <> prefix <> messages <> ">"
   end
 
-  defp pre_msg(%Noise.Pattern{pre_message: [[], []]}), do: "\n"
-
-  defp pre_msg(%Noise.Pattern{pre_message: [[], recv]}) do
-    """
-    \n  <- #{Enum.join(recv, ", ")}
-      ...
-    """
-  end
-
-  defp pre_msg(%Noise.Pattern{pre_message: [init, []]}) do
-    """
-    \n  -> #{Enum.join(init, ", ")}
-      ...
-    """
-  end
-
-  defp pre_msg(%Noise.Pattern{pre_message: [init, recv]}) do
-    """
-    \n  -> #{Enum.join(init, ", ")}
-      <- #{Enum.join(recv, ", ")}
-      ...
-    """
-  end
-
-  defp handshake(%Noise.Pattern{tokens: tokens}) do
-    Enum.map_join(
-      tokens,
-      "\n",
-      fn
-        {:ini, t} -> "  -> #{Enum.join(t, ", ")}"
-        {:resp, t} -> "  <- #{Enum.join(t, ", ")}"
-      end
-    )
-  end
+  defp message(:ini, tokens), do: "-> " <> Enum.join(tokens, ", ")
+  defp message(:resp, tokens), do: "<- " <> Enum.join(tokens, ", ")
 end

@@ -1,39 +1,33 @@
-defmodule NoiseTest.Crypto.Cipher.AESGCM do
+defmodule Noise.Crypto.Cipher.AESGCMTest do
   use ExUnit.Case, async: true
 
   alias Noise.Crypto.Cipher.AESGCM
 
-  test "round trip encryption/decryption" do
-    k = :crypto.strong_rand_bytes(32)
-    n = 0
-    ad = "associated data"
-    plain_text = "hello world"
+  @k :crypto.strong_rand_bytes(32)
 
-    cipher_text = AESGCM.encrypt(k, n, ad, plain_text)
-    assert byte_size(cipher_text) == byte_size(plain_text) + 16
-
-    decrypted = AESGCM.decrypt(k, n, ad, cipher_text)
-    assert decrypted == plain_text
+  test "round trip" do
+    cipher_text = AESGCM.encrypt(@k, 0, "associated data", "hello world")
+    assert byte_size(cipher_text) == byte_size("hello world") + 16
+    assert AESGCM.decrypt(@k, 0, "associated data", cipher_text) == "hello world"
   end
 
-  test "decrypt fails with wrong key" do
-    k = :crypto.strong_rand_bytes(32)
-    wrong_k = :crypto.strong_rand_bytes(32)
-    n = 0
-    ad = ""
-    plain_text = "hello"
+  test "nonce is encoded big-endian in the low 8 bytes (spec §12.4)" do
+    {expected, tag} =
+      :crypto.crypto_one_time_aead(:aes_256_gcm, @k, <<0::32, 1::big-64>>, "x", "", true)
 
-    cipher_text = AESGCM.encrypt(k, n, ad, plain_text)
-    assert AESGCM.decrypt(wrong_k, n, ad, cipher_text) == :error
+    assert AESGCM.encrypt(@k, 1, "", "x") == expected <> tag
   end
 
-  test "decrypt fails with wrong ad" do
-    k = :crypto.strong_rand_bytes(32)
-    n = 0
-    ad = "ad1"
-    plain_text = "hello"
+  test "wrong key, wrong ad, wrong nonce and short input return :error" do
+    cipher_text = AESGCM.encrypt(@k, 0, "ad1", "hello")
+    assert AESGCM.decrypt(:crypto.strong_rand_bytes(32), 0, "ad1", cipher_text) == :error
+    assert AESGCM.decrypt(@k, 0, "ad2", cipher_text) == :error
+    assert AESGCM.decrypt(@k, 1, "ad1", cipher_text) == :error
+    assert AESGCM.decrypt(@k, 0, "ad1", <<1, 2, 3>>) == :error
+  end
 
-    cipher_text = AESGCM.encrypt(k, n, ad, plain_text)
-    assert AESGCM.decrypt(k, n, "ad2", cipher_text) == :error
+  test "rekey derives a different 32-byte key" do
+    assert byte_size(AESGCM.rekey(@k)) == 32
+    assert AESGCM.rekey(@k) != @k
   end
 end

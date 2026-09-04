@@ -5,6 +5,7 @@ defmodule Noise.Vectors.SnowExtendedTest do
   @vectors_file "test/vectors/snow-extended.json"
   @external_resource @vectors_file
 
+  # P256 and XChaChaPoly are not implemented; every vector in this file uses them.
   @moduletag :skip
   @moduletag :vectors
   @moduletag :snow_extended

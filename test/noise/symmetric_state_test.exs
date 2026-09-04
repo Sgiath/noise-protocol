@@ -1,4 +1,4 @@
-defmodule NoiseTest.SymmetricState do
+defmodule Noise.SymmetricStateTest do
   use ExUnit.Case, async: true
 
   alias Noise.CipherState
@@ -7,86 +7,58 @@ defmodule NoiseTest.SymmetricState do
 
   setup do
     protocol = Protocol.from_name("Noise_NN_25519_ChaChaPoly_BLAKE2b")
-    {:ok, protocol: protocol}
+    keyed = protocol |> SymmetricState.initialize() |> SymmetricState.mix_key(<<0::256>>)
+    {:ok, protocol: protocol, keyed: keyed}
   end
 
-  test "initialize sets h and ck to protocol name (padded)", %{protocol: protocol} do
-    state = SymmetricState.initialize(protocol)
-
-    assert byte_size(state.h) == protocol.hashlen
-    assert byte_size(state.ck) == protocol.hashlen
-
-    # Check if first bytes match protocol name
+  test "short protocol name is zero-padded into h (spec §5.2)", %{protocol: protocol} do
+    h = protocol |> SymmetricState.initialize() |> SymmetricState.handshake_hash()
     name_len = byte_size(protocol.name)
-    <<name::binary-size(^name_len), _rest::binary>> = state.h
-    assert name == protocol.name
+    padding = (protocol.hashlen - name_len) * 8
+
+    assert h == <<protocol.name::binary, 0::size(padding)>>
   end
 
-  test "mix_hash updates h", %{protocol: protocol} do
-    state = SymmetricState.initialize(protocol)
-    h_orig = state.h
+  test "protocol name longer than HASHLEN is hashed into h (spec §5.2)" do
+    protocol = Protocol.from_name("Noise_XXpsk0+psk1+psk2+psk3_25519_ChaChaPoly_SHA256")
+    assert byte_size(protocol.name) > 32
 
-    state = SymmetricState.mix_hash(state, "data")
-    assert state.h != h_orig
-    assert byte_size(state.h) == protocol.hashlen
+    h = protocol |> SymmetricState.initialize() |> SymmetricState.handshake_hash()
+    assert h == :crypto.hash(:sha256, protocol.name)
   end
 
-  test "mix_key updates ck and cipher_state", %{protocol: protocol} do
+  test "mix_hash changes h", %{protocol: protocol} do
     state = SymmetricState.initialize(protocol)
-    ck_orig = state.ck
 
-    # CipherState initially has no key
-    refute SymmetricState.has_key?(state)
-
-    input_key = <<0::256>>
-    state = SymmetricState.mix_key(state, input_key)
-
-    assert state.ck != ck_orig
-    assert SymmetricState.has_key?(state)
+    assert SymmetricState.handshake_hash(SymmetricState.mix_hash(state, "data")) !=
+             SymmetricState.handshake_hash(state)
   end
 
-  test "encrypt_and_hash updates h and returns ciphertext", %{protocol: protocol} do
-    state = SymmetricState.initialize(protocol)
-    input_key = <<0::256>>
-    state = SymmetricState.mix_key(state, input_key)
-
-    h_orig = state.h
-    plaintext = "hello"
-
-    {ciphertext, state_next} = SymmetricState.encrypt_and_hash(state, plaintext)
-
-    assert ciphertext != plaintext
-    # ChaChaPoly adds 16 byte tag
-    assert byte_size(ciphertext) == byte_size(plaintext) + 16
-    assert state_next.h != h_orig
+  test "mix_key installs a cipher key", %{protocol: protocol, keyed: keyed} do
+    refute SymmetricState.has_key?(SymmetricState.initialize(protocol))
+    assert SymmetricState.has_key?(keyed)
   end
 
-  test "decrypt_and_hash updates h and returns plaintext", %{protocol: protocol} do
-    state = SymmetricState.initialize(protocol)
-    input_key = <<0::256>>
-    state = SymmetricState.mix_key(state, input_key)
+  test "encrypt_and_hash / decrypt_and_hash round-trip and agree on h", %{keyed: state} do
+    {:ok, ciphertext, sender} = SymmetricState.encrypt_and_hash(state, "hello")
+    assert byte_size(ciphertext) == 5 + 16
 
-    {ciphertext, state_send} = SymmetricState.encrypt_and_hash(state, "hello")
-
-    # Reset state for receiver (needs same keys)
-    state_recv = state
-
-    {plaintext, state_recv_next} = SymmetricState.decrypt_and_hash(state_recv, ciphertext)
-
-    assert plaintext == "hello"
-    assert state_recv_next.h == state_send.h
+    {:ok, "hello", receiver} = SymmetricState.decrypt_and_hash(state, ciphertext)
+    assert SymmetricState.handshake_hash(sender) == SymmetricState.handshake_hash(receiver)
   end
 
-  test "split returns two cipher states", %{protocol: protocol} do
-    state = SymmetricState.initialize(protocol)
-    input_key = <<0::256>>
-    state = SymmetricState.mix_key(state, input_key)
+  test "decrypt_and_hash failure leaves the state untouched", %{keyed: state} do
+    {:ok, ciphertext, _} = SymmetricState.encrypt_and_hash(state, "hello")
+    tampered = <<0>> <> binary_part(ciphertext, 1, byte_size(ciphertext) - 1)
 
-    {{cs1, cs2}, _state} = SymmetricState.split(state)
+    assert {:error, :decrypt_failed} = SymmetricState.decrypt_and_hash(state, tampered)
+    assert {:ok, "hello", _} = SymmetricState.decrypt_and_hash(state, ciphertext)
+  end
 
-    assert %CipherState{} = cs1
-    assert %CipherState{} = cs2
+  test "split returns two keyed cipher states", %{keyed: state} do
+    {cs1, cs2} = SymmetricState.split(state)
     assert CipherState.has_key?(cs1)
     assert CipherState.has_key?(cs2)
+    assert cs1 != cs2
   end
 end

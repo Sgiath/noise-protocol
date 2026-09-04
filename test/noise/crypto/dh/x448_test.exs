@@ -1,4 +1,4 @@
-defmodule NoiseTest.Crypto.DH.X448 do
+defmodule Noise.Crypto.DH.X448Test do
   use ExUnit.Case, async: true
 
   alias Noise.Crypto.DH.X448
@@ -13,16 +13,16 @@ defmodule NoiseTest.Crypto.DH.X448 do
     assert byte_size(pub) == 56
   end
 
-  test "dh exchange works" do
-    alice = X448.generate_keypair()
-    bob = X448.generate_keypair()
-    {_alice_priv, alice_pub} = alice
-    {_bob_priv, bob_pub} = bob
+  test "dh exchange agrees on both sides" do
+    {_, alice_pub} = alice = X448.generate_keypair()
+    {_, bob_pub} = bob = X448.generate_keypair()
 
-    s1 = X448.dh(alice, bob_pub)
-    s2 = X448.dh(bob, alice_pub)
+    assert {:ok, shared} = X448.dh(alice, bob_pub)
+    assert {:ok, ^shared} = X448.dh(bob, alice_pub)
+    assert byte_size(shared) == 56
+  end
 
-    assert s1 == s2
-    assert byte_size(s1) == 56
+  test "low-order points are rejected" do
+    assert {:error, :invalid_public_key} = X448.dh(X448.generate_keypair(), <<0::448>>)
   end
 end

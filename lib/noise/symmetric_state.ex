@@ -1,110 +1,99 @@
 defmodule Noise.SymmetricState do
   @moduledoc """
-  Tracks the symmetric state during a handshake.
+  A `SymmetricState` (spec §5.2): chaining key `ck`, handshake hash `h` and
+  an embedded `Noise.CipherState`.
 
-  The `SymmetricState` object contains a `CipherState` plus a chaining key `ck` and a handshake hash `h`.
-  It handles mixing keys and hashes as the handshake progresses.
+  Internal to the handshake; users interact with it through
+  `Noise.HandshakeState`. The chaining key is redacted from `inspect/1`.
   """
 
   alias Noise.CipherState
+  alias Noise.Crypto.Hash
   alias Noise.Protocol
 
-  @enforce_keys [:protocol, :cipher_state]
+  @derive {Inspect, except: [:ck]}
+  @enforce_keys [:protocol, :cipher_state, :ck, :h]
   defstruct [:protocol, :ck, :h, :cipher_state]
 
-  def initialize(%Protocol{name: protocol_name, hashlen: hashlen} = protocol)
-      when byte_size(protocol_name) <= hashlen do
-    s = 8 * (hashlen - byte_size(protocol_name))
+  @opaque t() :: %__MODULE__{
+            protocol: Protocol.t(),
+            ck: Hash.hash(),
+            h: Hash.hash(),
+            cipher_state: CipherState.t()
+          }
 
-    do_init(protocol, <<protocol_name::binary, 0x00::size(s)>>)
+  @doc "`InitializeSymmetric(protocol_name)` (spec §5.2): pad or hash the name into `h`."
+  @spec initialize(Protocol.t()) :: t()
+  def initialize(%Protocol{name: name, hashlen: hashlen} = protocol)
+      when byte_size(name) <= hashlen do
+    padding = 8 * (hashlen - byte_size(name))
+    do_init(protocol, <<name::binary, 0::size(padding)>>)
   end
 
-  def initialize(%Protocol{name: protocol_name} = protocol) do
-    do_init(protocol, Protocol.hash(protocol, protocol_name))
+  def initialize(%Protocol{name: name} = protocol) do
+    do_init(protocol, Protocol.hash(protocol, name))
   end
 
-  def mix_key(%__MODULE__{protocol: protocol} = state, input_key_material) do
-    {ck, <<temp_k::binary-size(32), _rest::binary>>} =
-      Protocol.hkdf(protocol, state.ck, input_key_material, 2)
+  @spec mix_key(t(), binary()) :: t()
+  def mix_key(%__MODULE__{protocol: protocol, ck: ck} = state, input_key_material) do
+    {ck, <<temp_k::binary-size(32), _::binary>>} =
+      Protocol.hkdf(protocol, ck, input_key_material, 2)
 
-    state
-    |> Map.put(:ck, ck)
-    |> Map.update!(:cipher_state, &CipherState.initialize_key(&1, temp_k))
+    %__MODULE__{
+      state
+      | ck: ck,
+        cipher_state: CipherState.initialize_key(state.cipher_state, temp_k)
+    }
   end
 
+  @spec mix_hash(t(), iodata()) :: t()
   def mix_hash(%__MODULE__{protocol: protocol, h: h} = state, data) do
-    Map.put(state, :h, Protocol.hash(protocol, h <> data))
+    %__MODULE__{state | h: Protocol.hash(protocol, [h, data])}
   end
 
-  def mix_key_and_hash(%__MODULE__{protocol: protocol} = state, input_key_material) do
-    {ck, temp_h, <<temp_k::binary-size(32), _rest::binary>>} =
-      Protocol.hkdf(protocol, state.ck, input_key_material, 3)
+  @spec mix_key_and_hash(t(), binary()) :: t()
+  def mix_key_and_hash(%__MODULE__{protocol: protocol, ck: ck} = state, input_key_material) do
+    {ck, temp_h, <<temp_k::binary-size(32), _::binary>>} =
+      Protocol.hkdf(protocol, ck, input_key_material, 3)
 
-    state
-    |> Map.put(:ck, ck)
+    %__MODULE__{state | ck: ck}
     |> mix_hash(temp_h)
     |> Map.update!(:cipher_state, &CipherState.initialize_key(&1, temp_k))
   end
 
-  def get_handshake_hash(%__MODULE__{h: h}), do: h
+  @spec handshake_hash(t()) :: Hash.hash()
+  def handshake_hash(%__MODULE__{h: h}), do: h
 
-  def encrypt_and_hash(%__MODULE__{} = state, plain_text) do
-    {cipher_text, cipher_state} =
-      CipherState.encrypt_with_ad(state.cipher_state, state.h, plain_text)
+  @spec has_key?(t()) :: boolean()
+  def has_key?(%__MODULE__{cipher_state: cs}), do: CipherState.has_key?(cs)
 
-    state =
-      state
-      |> Map.put(:cipher_state, cipher_state)
-      |> mix_hash(cipher_text)
-
-    {cipher_text, state}
+  @spec encrypt_and_hash(t(), binary()) :: {:ok, binary(), t()} | {:error, CipherState.error()}
+  def encrypt_and_hash(%__MODULE__{cipher_state: cs, h: h} = state, plain_text) do
+    with {:ok, cipher_text, cs} <- CipherState.encrypt_with_ad(cs, h, plain_text) do
+      {:ok, cipher_text, mix_hash(%__MODULE__{state | cipher_state: cs}, cipher_text)}
+    end
   end
 
-  def decrypt_and_hash(%__MODULE__{} = state, cipher_text) do
-    {plain_text, cipher_state} =
-      CipherState.decrypt_with_ad(state.cipher_state, state.h, cipher_text)
-
-    state =
-      state
-      |> Map.put(:cipher_state, cipher_state)
-      |> mix_hash(cipher_text)
-
-    {plain_text, state}
+  @spec decrypt_and_hash(t(), binary()) :: {:ok, binary(), t()} | {:error, CipherState.error()}
+  def decrypt_and_hash(%__MODULE__{cipher_state: cs, h: h} = state, cipher_text) do
+    with {:ok, plain_text, cs} <- CipherState.decrypt_with_ad(cs, h, cipher_text) do
+      {:ok, plain_text, mix_hash(%__MODULE__{state | cipher_state: cs}, cipher_text)}
+    end
   end
 
-  def split(%__MODULE__{protocol: protocol, ck: ck} = state) do
-    {<<temp_k1::binary-size(32), _rest1::binary>>, <<temp_k2::binary-size(32), _rest2::binary>>} =
+  @doc "`Split()` (spec §5.2): `{c1, c2}` where `c1` is initiator→responder."
+  @spec split(t()) :: {CipherState.t(), CipherState.t()}
+  def split(%__MODULE__{protocol: protocol, ck: ck}) do
+    {<<temp_k1::binary-size(32), _::binary>>, <<temp_k2::binary-size(32), _::binary>>} =
       Protocol.hkdf(protocol, ck, <<>>, 2)
 
-    c1 = CipherState.initialize(protocol)
-    c2 = CipherState.initialize(protocol)
-
-    {{CipherState.initialize_key(c1, temp_k1), CipherState.initialize_key(c2, temp_k2)}, state}
-  end
-
-  # internal
-
-  defp do_init(protocol, h) do
-    %__MODULE__{
-      protocol: protocol,
-      cipher_state: CipherState.initialize(protocol),
-      h: h,
-      ck: h
+    {
+      CipherState.initialize_key(CipherState.initialize(protocol), temp_k1),
+      CipherState.initialize_key(CipherState.initialize(protocol), temp_k2)
     }
   end
 
-  def has_key?(%__MODULE__{cipher_state: cs}) do
-    CipherState.has_key?(cs)
-  end
-end
-
-defimpl Inspect, for: Noise.SymmetricState do
-  alias Noise.Utils
-
-  def inspect(state, opts) do
-    Inspect.Map.inspect(
-      %{ck: Utils.hex(state.ck), h: Utils.hex(state.h), cipher_state: state.cipher_state},
-      opts
-    )
+  defp do_init(protocol, h) do
+    %__MODULE__{protocol: protocol, cipher_state: CipherState.initialize(protocol), h: h, ck: h}
   end
 end

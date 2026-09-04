@@ -1,14 +1,16 @@
 defmodule Noise.Crypto.Cipher do
   @moduledoc """
-  Behaviour for Cipher functions (AEAD).
+  Behaviour for AEAD cipher functions (spec §4.2).
 
-  This module defines the interface that all Cipher implementations must follow.
-  It also provides a default implementation for `rekey/1`.
+  `decrypt/4` returns `:error` on authentication failure or when the
+  ciphertext is shorter than the 16-byte tag. A default `rekey/1`
+  (spec §4.2: `ENCRYPT(k, 2^64-1, zerolen, zeros[32])`) is provided by
+  `use Noise.Crypto.Cipher`.
   """
   alias Noise.Crypto.Cipher
 
-  @type key() :: <<_::32, _::_*8>>
-  @type nonce() :: integer()
+  @type key() :: <<_::256>>
+  @type nonce() :: 0..18_446_744_073_709_551_615
 
   @callback encrypt(k :: key(), n :: nonce(), ad :: binary(), plain_text :: binary()) ::
               cipher_text :: binary()
@@ -16,18 +18,22 @@ defmodule Noise.Crypto.Cipher do
               (plain_text :: binary()) | :error
   @callback rekey(key :: key()) :: key()
 
-  def max_nonce, do: Integer.pow(2, 64) - 1
+  @doc "Largest nonce value; reserved for `rekey/1` (spec §5.1)."
+  def max_nonce, do: 0xFFFF_FFFF_FFFF_FFFF
 
   defmacro __using__(_opts) do
     quote do
       @behaviour Cipher
 
+      @impl Cipher
       def rekey(k) do
-        encrypt(k, Cipher.max_nonce(), <<>>, <<0x00::256>>)
-        |> binary_part(0, 32)
+        <<new_key::binary-size(32), _tag::binary>> =
+          encrypt(k, Cipher.max_nonce(), <<>>, <<0::256>>)
+
+        new_key
       end
 
-      defoverridable(rekey: 1)
+      defoverridable rekey: 1
     end
   end
 end

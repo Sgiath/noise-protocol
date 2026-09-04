@@ -1,8 +1,10 @@
 defmodule Noise.VectorRunner do
-  import ExUnit.Assertions
+  @moduledoc false
+  # Runs one Snow/Cacophony-format test vector through the public `Noise` API,
+  # checking exact ciphertexts, peer decryption, handshake hash and transport
+  # messages in both directions.
 
-  alias Noise.CipherState
-  alias Noise.HandshakeState
+  import ExUnit.Assertions
 
   def load_vectors_from_file(path) do
     path
@@ -12,198 +14,94 @@ defmodule Noise.VectorRunner do
   end
 
   def run_vector(vector) do
-    protocol_name = vector["protocol_name"]
+    protocol = Noise.protocol(vector["protocol_name"])
     prologue = decode_hex(vector["init_prologue"] || "")
 
-    # Keys
-    init_static = decode_keypair(vector["init_static"], protocol_name)
-    init_ephemeral = decode_keypair(vector["init_ephemeral"], protocol_name)
-    init_remote_static = decode_key(vector["init_remote_static"])
+    init = Noise.handshake(protocol, true, prologue, side_opts(vector, "init", protocol))
+    resp = Noise.handshake(protocol, false, prologue, side_opts(vector, "resp", protocol))
 
-    resp_static = decode_keypair(vector["resp_static"], protocol_name)
-    resp_ephemeral = decode_keypair(vector["resp_ephemeral"], protocol_name)
-    resp_remote_static = decode_key(vector["resp_remote_static"])
+    one_way? = Enum.all?(protocol.pattern.tokens, fn {role, _} -> role == :ini end)
 
-    # PSKs
-    init_psks = vector |> Map.get("init_psks", []) |> Enum.map(&decode_hex/1)
-    resp_psks = vector |> Map.get("resp_psks", []) |> Enum.map(&decode_hex/1)
-
-    # Verify key derivation
-    if resp_static && init_remote_static do
-      assert elem(resp_static, 1) == init_remote_static,
-             "Responder Static Key Derivation Mismatch"
-    end
-
-    # Initialize States
-    hs_init =
-      HandshakeState.initialize(
-        protocol_name,
-        true,
-        prologue,
-        init_static,
-        init_remote_static,
-        init_ephemeral,
-        nil,
-        init_psks
-      )
-
-    hs_resp =
-      HandshakeState.initialize(
-        protocol_name,
-        false,
-        prologue,
-        resp_static,
-        resp_remote_static,
-        resp_ephemeral,
-        nil,
-        resp_psks
-      )
-
-    # Determine if One-Way
-    is_one_way = Enum.all?(hs_init.protocol.pattern.tokens, fn {role, _} -> role == :ini end)
-
-    # Run messages
-    run_messages(vector, {:handshake, hs_init}, {:handshake, hs_resp}, :initiator, is_one_way)
+    run_messages(vector["messages"], {:handshake, init}, {:handshake, resp}, one_way?, vector)
   end
 
-  defp run_messages(%{"messages" => []}, sender, receiver, _turn, _is_one_way),
-    do: {sender, receiver}
+  defp side_opts(vector, side, protocol) do
+    [
+      s: decode_keypair(vector["#{side}_static"], protocol),
+      e: decode_keypair(vector["#{side}_ephemeral"], protocol),
+      rs: decode_hex(vector["#{side}_remote_static"]),
+      psks: vector |> Map.get("#{side}_psks", []) |> Enum.map(&decode_hex/1)
+    ]
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+  end
 
-  defp run_messages(%{"messages" => [msg | rest]} = vector, sender, receiver, turn, is_one_way) do
+  defp run_messages([], _sender, _receiver, _one_way?, _vector), do: :ok
+
+  defp run_messages([msg | rest], sender, receiver, one_way?, vector) do
     payload = decode_hex(msg["payload"])
-    expected_ciphertext = decode_hex(msg["ciphertext"])
+    expected = decode_hex(msg["ciphertext"])
 
-    # Write
-    {ciphertext, new_sender} = process_write(sender, payload, vector)
+    {ciphertext, sender} = write(sender, payload, vector)
+    assert ciphertext == expected, "ciphertext mismatch, expected #{msg["ciphertext"]}"
 
-    assert ciphertext == expected_ciphertext,
-           "Ciphertext mismatch in #{turn} write. Expected #{inspect(msg["ciphertext"])}"
+    {decrypted, receiver} = read(receiver, ciphertext, vector)
+    assert decrypted == payload, "payload mismatch"
 
-    # Read
-    {decrypted_payload, new_receiver} = process_read(receiver, ciphertext, vector)
+    # One-way patterns: the initiator keeps sending. Otherwise alternate.
+    if one_way?,
+      do: run_messages(rest, sender, receiver, one_way?, vector),
+      else: run_messages(rest, receiver, sender, one_way?, vector)
+  end
 
-    assert decrypted_payload == payload,
-           "Payload mismatch in #{turn} read"
-
-    # Flip turn
-    if is_one_way do
-      # Sender is ALWAYS Initiator. Receiver is ALWAYS Responder.
-      # Arguments: (sender, receiver).
-      # sender was passed as first arg.
-      # So we pass them SAME order.
-      # But `new_sender` is the updated state of sender.
-      run_messages(%{vector | "messages" => rest}, new_sender, new_receiver, turn, is_one_way)
-    else
-      next_turn = if turn == :initiator, do: :responder, else: :initiator
-      # Swap sender/receiver for next iteration
-      run_messages(
-        %{vector | "messages" => rest},
-        new_receiver,
-        new_sender,
-        next_turn,
-        is_one_way
-      )
+  defp write({:handshake, state}, payload, vector) do
+    case Noise.handshake_step(state, payload) do
+      {:ok, message, state} -> {message, {:handshake, state}}
+      {:complete, message, state} -> {message, finish(state, vector)}
     end
   end
 
-  # --- State Processing ---
+  defp write({:transport, tx, rx}, payload, _vector) do
+    {:ok, ciphertext, tx} = Noise.encrypt(tx, payload)
+    {ciphertext, {:transport, tx, rx}}
+  end
 
-  # Handshake Mode
-  defp process_write({:handshake, state}, payload, vector) do
-    {ciphertext, new_state} = HandshakeState.write_message(state, payload)
-
-    if new_state.message_patterns == [] do
-      # Handshake complete, Split
-      {{cs1, cs2}, final_hs} = HandshakeState.finalize(new_state)
-
-      if not is_nil(vector["handshake_hash"]) do
-        assert vector["handshake_hash"] == Noise.Utils.hex(final_hs.symmetric_state.h)
-      end
-
-      is_initiator = state.initiator
-
-      transport_state =
-        if is_initiator do
-          {:transport, cs1, cs2}
-          # Send using c1, Recv using c2
-        else
-          {:transport, cs2, cs1}
-          # Send using c2, Recv using c1
-        end
-
-      {ciphertext, transport_state}
-    else
-      {ciphertext, {:handshake, new_state}}
+  defp read({:handshake, state}, message, vector) do
+    case Noise.handshake_step(state, message) do
+      {:ok, payload, state} -> {payload, {:handshake, state}}
+      {:complete, payload, state} -> {payload, finish(state, vector)}
     end
   end
 
-  # Transport Mode
-  defp process_write({:transport, send_cs, recv_cs}, payload, _vector) do
-    {ciphertext, new_send_cs} = CipherState.encrypt_with_ad(send_cs, <<>>, payload)
-    {ciphertext, {:transport, new_send_cs, recv_cs}}
+  defp read({:transport, tx, rx}, ciphertext, _vector) do
+    {:ok, payload, rx} = Noise.decrypt(rx, ciphertext)
+    {payload, {:transport, tx, rx}}
   end
 
-  # Read - Handshake
-  defp process_read({:handshake, state}, ciphertext, vector) do
-    {payload, new_state} = HandshakeState.read_message(state, ciphertext)
-
-    if new_state.message_patterns == [] do
-      # Split
-      {{cs1, cs2}, final_hs} = HandshakeState.finalize(new_state)
-
-      if not is_nil(vector["handshake_hash"]) do
-        assert vector["handshake_hash"] == Noise.Utils.hex(final_hs.symmetric_state.h)
-      end
-
-      is_initiator = state.initiator
-
-      transport_state =
-        if is_initiator do
-          {:transport, cs1, cs2}
-        else
-          {:transport, cs2, cs1}
-        end
-
-      {payload, transport_state}
-    else
-      {payload, {:handshake, new_state}}
+  defp finish(state, vector) do
+    if hash = vector["handshake_hash"] do
+      assert Base.encode16(Noise.handshake_hash(state), case: :lower) == hash
     end
-  end
 
-  # Read - Transport
-  defp process_read({:transport, send_cs, recv_cs}, ciphertext, _vector) do
-    {payload, new_recv_cs} = CipherState.decrypt_with_ad(recv_cs, <<>>, ciphertext)
-    {payload, {:transport, send_cs, new_recv_cs}}
+    {tx, rx} = Noise.split(state)
+    {:transport, tx, rx}
   end
-
-  # --- Helpers ---
 
   defp decode_hex(nil), do: nil
   defp decode_hex(hex), do: Base.decode16!(hex, case: :mixed)
 
-  defp decode_key(nil), do: nil
-  defp decode_key(hex), do: decode_hex(hex)
+  defp decode_keypair(nil, _protocol), do: nil
 
-  defp decode_keypair(nil, _), do: nil
-
-  defp decode_keypair(hex, protocol_name) do
+  defp decode_keypair(hex, %Noise.Protocol{dh: dh}) do
     priv = decode_hex(hex)
-    pub = derive_public_key(priv, protocol_name)
-    {priv, pub}
+    {priv, derive_public_key(dh, priv)}
   end
 
-  defp derive_public_key(priv, protocol_name) do
-    cond do
-      String.contains?(protocol_name, "25519") ->
-        # X25519: Base point is 9
-        :crypto.compute_key(:ecdh, <<9, 0::248>>, priv, :x25519)
+  defp derive_public_key(Noise.Crypto.DH.X25519, priv),
+    do: :crypto.compute_key(:ecdh, <<9, 0::248>>, priv, :x25519)
 
-      String.contains?(protocol_name, "448") ->
-        # X448: Base point is 5
-        :crypto.compute_key(:ecdh, <<5, 0::440>>, priv, :x448)
+  defp derive_public_key(Noise.Crypto.DH.X448, priv),
+    do: :crypto.compute_key(:ecdh, <<5, 0::440>>, priv, :x448)
 
-      :otherwise ->
-        raise "Unknown DH for key derivation in protocol: #{protocol_name}"
-    end
-  end
+  defp derive_public_key(Noise.Crypto.DH.Secp256k1, priv),
+    do: Secp256k1.pubkey(priv, :compressed)
 end

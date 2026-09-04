@@ -65,12 +65,54 @@ defmodule Noise.PatternTest do
       end
     end
 
-    test "raises ArgumentError (or matches regex but fails later) for weird format" do
-      # The regex is ^([A-Z0-9]+)(.*)$, so "noise" matches base="noise", mods=""
-      # get_base_pattern("noise") will raise
+    test "raises ArgumentError for lowercase input" do
       assert_raise ArgumentError, "Pattern noise is not supported", fn ->
         Pattern.from_name("noise")
       end
+    end
+
+    test "rejects pskN outside the pattern's message count (spec §9.4)" do
+      assert_raise ArgumentError, ~r/psk3 is out of range/, fn -> Pattern.from_name("NNpsk3") end
+      assert_raise ArgumentError, ~r/psk2 is out of range/, fn -> Pattern.from_name("Npsk2") end
+
+      assert_raise ArgumentError, ~r/psk01 is out of range/, fn ->
+        Pattern.from_name("NNpsk01")
+      end
+
+      assert_raise ArgumentError, ~r/psk is out of range/, fn -> Pattern.from_name("NNpsk") end
+    end
+
+    test "rejects unknown modifiers" do
+      assert_raise ArgumentError, ~r/fallback .* not supported/, fn ->
+        Pattern.from_name("XXfallback")
+      end
+
+      assert_raise ArgumentError, ~r/hfs .* not supported/, fn ->
+        Pattern.from_name("NNpsk0+hfs")
+      end
+    end
+  end
+
+  describe "queries" do
+    test "psk?/1 and psk_count/1" do
+      refute Pattern.psk?(Pattern.from_name("XX"))
+      assert Pattern.psk?(Pattern.from_name("XXpsk1"))
+      assert Pattern.psk_count(Pattern.from_name("XX")) == 0
+      assert Pattern.psk_count(Pattern.from_name("XXpsk0+psk3")) == 2
+    end
+
+    test "transmits?/3 and pre_shares?/3" do
+      ik = Pattern.from_name("IK")
+      assert Pattern.transmits?(ik, :ini, :s)
+      refute Pattern.transmits?(ik, :resp, :s)
+      assert Pattern.pre_shares?(ik, :resp, :s)
+      refute Pattern.pre_shares?(ik, :ini, :s)
+
+      kk = Pattern.from_name("KK")
+      assert Pattern.pre_shares?(kk, :ini, :s)
+      assert Pattern.pre_shares?(kk, :resp, :s)
+      refute Pattern.transmits?(kk, :ini, :s)
+      assert Pattern.transmits?(kk, :ini, :e)
     end
   end
 end

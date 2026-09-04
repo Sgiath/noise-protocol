@@ -1,217 +1,208 @@
 defmodule Noise do
   @moduledoc """
-  The entry point for the Noise Protocol Framework.
+  Elixir implementation of the [Noise Protocol Framework](https://noiseprotocol.org/noise.html)
+  (revision 34).
 
-  This module serves as the primary interface for the Noise library, allowing users to:
-  1.  Define protocols using standard Noise strings.
-  2.  Initialize and manage handshake state machines.
-  3.  Perform encryption and decryption of transport messages.
+  A protocol is named by a string such as `Noise_XX_25519_ChaChaPoly_BLAKE2s`
+  which selects the handshake pattern and the DH, cipher and hash functions.
 
-  ## What is Noise?
+  ## Supported primitives
 
-  Noise is a framework for crypto protocols based on Diffie-Hellman key agreement.
-  It allows you to describe a protocol by a simple name string (e.g., `Noise_IK_25519_ChaChaPoly_BLAKE2s`)
-  which determines the handshake pattern and cryptographic primitives used.
+    * **DH**: `25519`, `448`, and `secp256k1` (BOLT-8 convention; needs the
+      optional `{:lib_secp256k1, "~> 0.8"}` dependency)
+    * **Cipher**: `AESGCM`, `ChaChaPoly`
+    * **Hash**: `SHA256`, `SHA512`, `BLAKE2s`, `BLAKE2b`
+    * **Patterns**: every one-way, fundamental and deferred pattern from the
+      spec, with `pskN` modifiers
 
-  ## Supported Primitives
+  ## Walkthrough: `Noise_XX_25519_ChaChaPoly_BLAKE2s`
 
-  This implementation supports the following primitives as defined in the specification:
+  XX is a three-message handshake where both parties transmit their static
+  keys, so neither needs to know the other's key up front.
 
-  *   **Cipher**: [AES-GCM](`Noise.Crypto.Cipher.AESGCM`), [ChaChaPoly](`Noise.Crypto.Cipher.ChaChaPoly`)
-  *   **Diffie-Hellman**: [25519](`Noise.Crypto.DH.X25519`), [448](`Noise.Crypto.DH.X448`), [secp256k1](`Noise.Crypto.DH.Secp256k1`)
-  *   **Hash**: [SHA256](`Noise.Crypto.Hash.Sha256`), [SHA512](`Noise.Crypto.Hash.Sha512`), [Blake2b](`Noise.Crypto.Hash.Blake2b`), [Blake2s](`Noise.Crypto.Hash.Blake2s`)
+      protocol = Noise.protocol("Noise_XX_25519_ChaChaPoly_BLAKE2s")
+      client_kp = Noise.generate_keypair(protocol)
+      server_kp = Noise.generate_keypair(protocol)
 
-  ## Usage
+      client = Noise.handshake(protocol, true, "prologue", s: client_kp)
+      server = Noise.handshake(protocol, false, "prologue", s: server_kp)
 
-  The typical workflow involves selecting a protocol, generating keys, and running the handshake.
+      # -> e
+      {:ok, msg1, client} = Noise.handshake_step(client, "hello")
+      {:ok, "hello", server} = Noise.handshake_step(server, msg1)
 
-  ### 1. Protocol Instantiation
+      # <- e, ee, s, es
+      {:ok, msg2, server} = Noise.handshake_step(server, "")
+      {:ok, "", client} = Noise.handshake_step(client, msg2)
 
-  Use `Noise.protocol/1` to create a protocol struct from a name string.
+      # -> s, se   (last message: both sides report :complete)
+      {:complete, msg3, client} = Noise.handshake_step(client, "")
+      {:complete, "", server} = Noise.handshake_step(server, msg3)
 
-  ```elixir
-  protocol = Noise.protocol("Noise_IK_25519_ChaChaPoly_BLAKE2s")
-  ```
+      # Channel binding and peer identity are available from the final state
+      true = Noise.handshake_hash(client) == Noise.handshake_hash(server)
+      true = Noise.remote_static(server) == elem(client_kp, 1)
 
-  ### 2. Key Generation
+      # Split into transport ciphers, already ordered as {send, receive} for each role
+      {client_tx, client_rx} = Noise.split(client)
+      {server_tx, server_rx} = Noise.split(server)
 
-  Generate a keypair appropriate for the protocol's DH function. The keypair is returned as `{private_key, public_key}`.
+      {:ok, ciphertext, client_tx} = Noise.encrypt(client_tx, "secret")
+      {:ok, "secret", server_rx} = Noise.decrypt(server_rx, ciphertext)
 
-  ```elixir
-  client_kp = Noise.generate_keypair(protocol)
-  # {client_priv, client_pub} = client_kp
-  ```
+  `handshake_step/2` writes when it is your turn to send and reads otherwise;
+  use `write_message/2` and `read_message/2` when you want that explicit.
 
-  ### 3. Handshake Initialization
+  ## Errors
 
-  Start the handshake by creating a `Noise.HandshakeState`. You must specify whether you are the `initiator` or `responder`.
-  Depending on the handshake pattern (e.g., `IK`, `XX`, `NN`), you may need to provide:
-    * `:s` - Your local static keypair.
-    * `:rs` - The remote party's static public key.
-    * `:psks` - A list of pre-shared keys (for patterns with `psk` modifier).
+  Hostile or corrupted network input never raises. Handshake and transport
+  functions return `{:error, reason}` with one of:
 
-  ```elixir
-  # Initiator (knows responder's public key `server_pub`)
-  initiator = Noise.handshake(protocol, true, <<>>, s: client_kp, rs: server_pub)
+    * `:decrypt_failed` - AEAD authentication failed; the state is unchanged
+      and the message must be discarded
+    * `:malformed_message` - a handshake message is too short for its tokens
+    * `:message_too_long` - a message exceeds the 65535-byte Noise limit
+    * `:invalid_public_key` - the peer sent a key the DH function rejects
+    * `:nonce_exhausted` - the cipher state has sent/received 2^64-1 messages
+    * `:wrong_turn` - `write_message/2` called when the peer should be
+      sending, or vice versa
+    * `:handshake_complete` - a handshake function called after the last
+      message; call `split/1`
 
-  # Responder (authenticates with its own keypair)
-  responder = Noise.handshake(protocol, false, <<>>, s: server_kp)
-  ```
-
-  ### 4. The Handshake Loop
-
-  Exchange messages using `Noise.handshake_step/2`. This function handles both reading and writing.
-  It returns `{:ok, message, new_state}` for intermediate steps, and `{:complete, message, split_states}`
-  when the handshake is finished.
-
-  ```elixir
-  # --- Step 1 ---
-  # Initiator writes the first message
-  {:ok, msg1, initiator} = Noise.handshake_step(initiator, "Client Hello")
-
-  # Responder reads the message
-  {:ok, "Client Hello", responder} = Noise.handshake_step(responder, msg1)
-
-  # ... Continue for subsequent steps ...
-  ```
-
-  ### 5. Transport Phase
-
-  When the handshake completes, it returns a pair of `Noise.CipherState` objects:
-  one for sending (encrypting) and one for receiving (decrypting).
-
-  ```elixir
-  # Upon completion:
-  {:complete, final_msg, {send_cipher, recv_cipher}} = Noise.handshake_step(initiator, inbound_msg)
-  ```
-
-  You can now securely exchange data:
-
-  ```elixir
-  # Encrypt
-  {ciphertext, new_send_cipher} = Noise.encrypt(send_cipher, "My Secret Data")
-
-  # Decrypt
-  {plaintext, new_recv_cipher} = Noise.decrypt(recv_cipher, ciphertext)
-  ```
+  Configuration mistakes (unknown protocol name, missing static key, wrong
+  PSK count) raise `ArgumentError` from `protocol/1` and `handshake/4`.
   """
 
-  alias Noise.Protocol
-  alias Noise.HandshakeState
-  alias Noise.Handshake
   alias Noise.CipherState
+  alias Noise.HandshakeState
+  alias Noise.Protocol
 
-  @typedoc "The Noise protocol name string, e.g. 'Noise_IK_25519_ChaChaPoly_BLAKE2s'"
+  @max_message_length 65_535
+  @tag_length 16
+
+  @typedoc "A protocol name string, e.g. `\"Noise_IK_25519_ChaChaPoly_BLAKE2s\"`"
   @type protocol_name :: String.t()
 
-  @typedoc "A keypair represented as {private_key, public_key} binaries"
-  @type keypair :: {binary(), binary()}
+  @typedoc "A keypair `{private_key, public_key}`"
+  @type keypair :: Noise.Crypto.DH.keypair()
 
-  @typedoc "A symmetric key as a binary"
-  @type key :: binary()
-
-  @typedoc "Noise handshake state (see `Noise.HandshakeState`)"
   @type handshake_state :: HandshakeState.t()
-
-  @typedoc "Noise cipher state (see `Noise.CipherState`)"
   @type cipher_state :: CipherState.t()
 
-  @doc """
-  Parses a protocol name string into a `Noise.Protocol` struct.
-  """
+  @type handshake_result ::
+          {:ok, binary(), handshake_state()}
+          | {:complete, binary(), handshake_state()}
+          | {:error, HandshakeState.error()}
+
+  @type transport_error :: :decrypt_failed | :nonce_exhausted | :message_too_long
+
+  @doc "Parses a protocol name into a `Noise.Protocol`. Raises `ArgumentError` if unsupported."
   @spec protocol(protocol_name()) :: Protocol.t()
   def protocol(name), do: Protocol.from_name(name)
 
-  @doc """
-  Generates a keypair for the given protocol.
-  """
+  @doc "Generates a fresh keypair for the protocol's DH function."
   @spec generate_keypair(Protocol.t()) :: keypair()
-  def generate_keypair(%Protocol{} = protocol) do
-    Protocol.generate_keypair(protocol)
-  end
+  def generate_keypair(%Protocol{} = protocol), do: Protocol.generate_keypair(protocol)
 
   @doc """
-  Initializes a handshake state.
-
-  ## Arguments
-  * `protocol` - A `Noise.Protocol` struct or protocol name string.
-  * `initiator` - Boolean, `true` if this party is the initiator, `false` otherwise.
-  * `prologue` - (Optional) Prologue data, defaults to empty binary.
-  * `opts` - Keyword list of options:
-    * `:s` - Local static keypair `{priv, pub}`.
-    * `:rs` - Remote static public key.
-    * `:e` - Local ephemeral keypair (usually generated automatically, provided for testing/determinism).
-    * `:re` - Remote ephemeral public key.
-    * `:psks` - List of pre-shared keys.
+  Initializes a handshake. See `Noise.HandshakeState.initialize/4` for the
+  options (`:s`, `:rs`, `:psks`, …) and which patterns require them.
   """
-  @spec handshake(Protocol.t() | protocol_name(), boolean(), binary(), keyword()) ::
+  @spec handshake(Protocol.t() | protocol_name(), boolean(), binary(), [HandshakeState.option()]) ::
           handshake_state()
   def handshake(protocol, initiator, prologue \\ <<>>, opts \\ []) do
-    s = Keyword.get(opts, :s)
-    rs = Keyword.get(opts, :rs)
-    e = Keyword.get(opts, :e)
-    re = Keyword.get(opts, :re)
-    psks = Keyword.get(opts, :psks, [])
-
-    HandshakeState.initialize(protocol, initiator, prologue, s, rs, e, re, psks)
+    HandshakeState.initialize(protocol, initiator, prologue, opts)
   end
 
   @doc """
-  Advances the handshake state machine.
+  Advances the handshake: writes a message carrying `data` as payload when it
+  is this party's turn to send, otherwise reads `data` as the peer's message
+  and returns its payload.
 
-  If the current turn is to **write** a message, `data` should be the plaintext payload to send.
-  If the current turn is to **read** a message, `data` should be the received ciphertext.
-
-  Returns:
-  * `{:ok, message, new_state}` - The handshake continues. `message` is the ciphertext to send (if writing) or the decrypted payload (if reading).
-  * `{:complete, message, {cs1, cs2}}` - The handshake is completed with this step. `message` is the final output, and `{cs1, cs2}` are the split CipherStates.
-  * `{:split, {cs1, cs2}}` - The handshake was already ready to split (called on a state with no remaining patterns).
+  Returns `{:complete, message_or_payload, state}` on the final message.
   """
-  @spec handshake_step(handshake_state(), binary()) ::
-          {:ok, binary(), handshake_state()}
-          | {:complete, binary(), {cipher_state(), cipher_state()}}
-          | {:split, {cipher_state(), cipher_state()}}
+  @spec handshake_step(handshake_state(), binary()) :: handshake_result()
   def handshake_step(state, data \\ <<>>) do
-    case Handshake.next_step(state, data) do
-      {{%CipherState{}, %CipherState{}} = split_states, _state} ->
-        {:split, split_states}
-
-      {msg, %HandshakeState{message_patterns: []} = new_state} when is_binary(msg) ->
-        {{c1, c2}, _} = HandshakeState.finalize(new_state)
-        {:complete, msg, {c1, c2}}
-
-      {msg, new_state} when is_binary(msg) ->
-        {:ok, msg, new_state}
+    case HandshakeState.next_action(state) do
+      :write -> write_message(state, data)
+      :read -> read_message(state, data)
+      :split -> {:error, :handshake_complete}
     end
   end
 
-  @doc """
-  Encrypts data using the given CipherState.
+  @doc "Writes the next handshake message with `payload`. `{:error, :wrong_turn}` if the peer should send."
+  @spec write_message(handshake_state(), binary()) :: handshake_result()
+  def write_message(state, payload) do
+    state |> HandshakeState.write_message(payload) |> tag_completion()
+  end
 
-  Returns `{ciphertext, new_cipher_state}`.
-  Updates the nonce in the CipherState.
+  @doc "Reads the peer's handshake `message` and returns its payload. `{:error, :wrong_turn}` if it is your turn to send."
+  @spec read_message(handshake_state(), binary()) :: handshake_result()
+  def read_message(state, message) do
+    state |> HandshakeState.read_message(message) |> tag_completion()
+  end
+
+  @doc """
+  Splits a completed handshake into `{send, receive}` cipher states for
+  *this* party — the initiator→responder / responder→initiator ordering of
+  the spec is already resolved by role. Raises unless complete.
   """
-  @spec encrypt(cipher_state(), binary(), binary()) :: {binary(), cipher_state()}
+  @spec split(handshake_state()) :: {cipher_state(), cipher_state()}
+  def split(state) do
+    {c1, c2} = HandshakeState.split(state)
+    if HandshakeState.initiator?(state), do: {c1, c2}, else: {c2, c1}
+  end
+
+  @doc "The handshake hash `h`, for channel binding (spec §11.2)."
+  @spec handshake_hash(handshake_state()) :: binary()
+  defdelegate handshake_hash(state), to: HandshakeState
+
+  @doc "The peer's static public key, once received or pre-shared."
+  @spec remote_static(handshake_state()) :: binary() | nil
+  defdelegate remote_static(state), to: HandshakeState
+
+  @doc """
+  Encrypts a transport message. `plain_text` may be at most 65519 bytes so
+  the message with its tag fits the Noise limit.
+  """
+  @spec encrypt(cipher_state(), binary(), binary()) ::
+          {:ok, binary(), cipher_state()} | {:error, transport_error()}
   def encrypt(cipher_state, plain_text, ad \\ <<>>) do
-    CipherState.encrypt_with_ad(cipher_state, ad, plain_text)
+    ensure_key!(cipher_state)
+
+    if byte_size(plain_text) > @max_message_length - @tag_length do
+      {:error, :message_too_long}
+    else
+      CipherState.encrypt_with_ad(cipher_state, ad, plain_text)
+    end
   end
 
-  @doc """
-  Decrypts data using the given CipherState.
-
-  Returns `{plaintext, new_cipher_state}`.
-  Updates the nonce in the CipherState.
-  """
-  @spec decrypt(cipher_state(), binary(), binary()) :: {binary(), cipher_state()}
+  @doc "Decrypts a transport message. On `{:error, :decrypt_failed}` the cipher state is unchanged; keep using it."
+  @spec decrypt(cipher_state(), binary(), binary()) ::
+          {:ok, binary(), cipher_state()} | {:error, transport_error()}
   def decrypt(cipher_state, cipher_text, ad \\ <<>>) do
-    CipherState.decrypt_with_ad(cipher_state, ad, cipher_text)
+    ensure_key!(cipher_state)
+
+    if byte_size(cipher_text) > @max_message_length do
+      {:error, :message_too_long}
+    else
+      CipherState.decrypt_with_ad(cipher_state, ad, cipher_text)
+    end
   end
 
-  @doc """
-  Rekey the CipherState.
-  """
+  @doc "Derives a new key for the cipher state (spec §11.3). Both parties must rekey in lockstep."
   @spec rekey(cipher_state()) :: cipher_state()
-  def rekey(cipher_state) do
-    CipherState.rekey(cipher_state)
+  defdelegate rekey(cipher_state), to: CipherState
+
+  defp tag_completion({:ok, data, state}) do
+    if HandshakeState.complete?(state), do: {:complete, data, state}, else: {:ok, data, state}
+  end
+
+  defp tag_completion({:error, _} = error), do: error
+
+  defp ensure_key!(cipher_state) do
+    unless CipherState.has_key?(cipher_state) do
+      raise ArgumentError, "cipher state has no key; use the states returned by Noise.split/1"
+    end
   end
 end

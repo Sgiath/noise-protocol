@@ -1,290 +1,376 @@
 defmodule Noise.HandshakeState do
   @moduledoc """
-  Tracks the state of a handshake in progress.
+  A `HandshakeState` (spec §5.3): the symmetric state plus the local and
+  remote key material and the message patterns still to process.
 
-  This struct holds the current state of the handshake protocol, including:
-  - The protocol definition (`Noise.Protocol`)
-  - The symmetric state (`Noise.SymmetricState`)
-  - The keypairs (local and remote, static and ephemeral)
-  - The remaining message patterns to process
+  `write_message/2` and `read_message/2` are the spec's `WriteMessage` and
+  `ReadMessage`. Both enforce whose turn it is, the 65535-byte message bound
+  (spec §3) and return `{:error, reason}` instead of crashing on hostile
+  input. Configuration mistakes (missing keys, wrong PSK count) raise
+  `ArgumentError` from `initialize/4`.
+
+  Private keys and PSKs are redacted from `inspect/1` output.
   """
 
+  alias Noise.CipherState
+  alias Noise.Crypto.DH
+  alias Noise.Pattern
   alias Noise.Protocol
   alias Noise.SymmetricState
 
-  @enforce_keys [:protocol]
-  defstruct [:protocol, :initiator, :symmetric_state, :message_patterns, :s, :e, :rs, :re, :psks]
+  @max_message_length 65_535
 
-  def initialize(
-        protocol,
-        initiator,
-        prologue \\ <<>>,
-        s \\ nil,
-        rs \\ nil,
-        e \\ nil,
-        re \\ nil,
-        psks \\ []
-      )
+  @derive {Inspect, except: [:s, :e, :psks]}
+  @enforce_keys [:protocol, :initiator, :symmetric_state, :message_patterns]
+  defstruct [
+    :protocol,
+    :initiator,
+    :symmetric_state,
+    :message_patterns,
+    :s,
+    :e,
+    :rs,
+    :re,
+    psks: []
+  ]
 
-  def initialize(protocol_name, initiator, prologue, s, rs, e, re, psks)
-      when is_binary(protocol_name) do
+  @opaque t() :: %__MODULE__{
+            protocol: Protocol.t(),
+            initiator: boolean(),
+            symmetric_state: SymmetricState.t(),
+            message_patterns: [{Pattern.role(), [Pattern.token()]}],
+            s: DH.keypair() | nil,
+            e: DH.keypair() | nil,
+            rs: DH.pubkey() | nil,
+            re: DH.pubkey() | nil,
+            psks: [binary()]
+          }
+
+  @type error() ::
+          :decrypt_failed
+          | :nonce_exhausted
+          | :malformed_message
+          | :message_too_long
+          | :invalid_public_key
+          | :wrong_turn
+          | :handshake_complete
+
+  @type option ::
+          {:s, DH.keypair()}
+          | {:rs, DH.pubkey()}
+          | {:e, DH.keypair()}
+          | {:re, DH.pubkey()}
+          | {:psks, [<<_::256>>]}
+
+  @doc """
+  `Initialize(handshake_pattern, initiator, prologue, s, e, rs, re)` (spec §5.3).
+
+  Options:
+
+    * `:s` - local static keypair `{private, public}`; required when the
+      pattern transmits or pre-shares this party's static key
+    * `:rs` - remote static public key; required when the pattern pre-shares
+      the peer's static key, forbidden when the peer transmits it
+    * `:psks` - list of 32-byte pre-shared keys, one per `psk` token
+    * `:e` - local ephemeral keypair, **for test vectors only**; reusing an
+      ephemeral across handshakes is catastrophic (spec §14)
+    * `:re` - remote ephemeral public key; only meaningful for patterns that
+      pre-share it
+  """
+  @spec initialize(Protocol.t() | String.t(), boolean(), binary(), [option()]) :: t()
+  def initialize(protocol, initiator, prologue \\ <<>>, opts \\ [])
+
+  def initialize(protocol_name, initiator, prologue, opts) when is_binary(protocol_name) do
     protocol_name
     |> Protocol.from_name()
-    |> initialize(initiator, prologue, s, rs, e, re, psks)
+    |> initialize(initiator, prologue, opts)
   end
 
-  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, nil) do
-    initialize(protocol, initiator, prologue, s, rs, e, re, [])
-  end
+  def initialize(%Protocol{pattern: pattern} = protocol, initiator, prologue, opts)
+      when is_boolean(initiator) and is_binary(prologue) do
+    opts = Keyword.validate!(opts, s: nil, rs: nil, e: nil, re: nil, psks: [])
+    validate_keys!(protocol, initiator, opts)
 
-  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, psk)
-      when is_binary(psk) do
-    initialize(protocol, initiator, prologue, s, rs, e, re, [psk])
-  end
-
-  def initialize(%Protocol{} = protocol, initiator, prologue, s, rs, e, re, psks) do
-    symmetric_state = initialize_symmetric_state(protocol, prologue)
-
-    {init_keys, resp_keys} = resolve_keys(initiator, s, e, rs, re)
-    [init_pre, resp_pre] = protocol.pattern.pre_message
-    is_psk = psk_handshake?(protocol)
-
-    symmetric_state =
-      symmetric_state
-      |> process_pre_message(init_pre, init_keys, is_psk)
-      |> process_pre_message(resp_pre, resp_keys, is_psk)
-
-    %__MODULE__{
+    state = %__MODULE__{
       protocol: protocol,
       initiator: initiator,
-      symmetric_state: symmetric_state,
-      message_patterns: protocol.pattern.tokens,
-      s: s,
-      e: e,
-      rs: rs,
-      re: re,
-      psks: psks
+      symmetric_state:
+        protocol |> SymmetricState.initialize() |> SymmetricState.mix_hash(prologue),
+      message_patterns: pattern.tokens,
+      s: opts[:s],
+      e: opts[:e],
+      rs: opts[:rs],
+      re: opts[:re],
+      psks: opts[:psks]
     }
+
+    [ini_pre, resp_pre] = pattern.pre_message
+
+    {ini_keys, resp_keys} =
+      if initiator,
+        do: {local_pubs(state), remote_pubs(state)},
+        else: {remote_pubs(state), local_pubs(state)}
+
+    state
+    |> mix_pre_message(ini_pre, ini_keys)
+    |> mix_pre_message(resp_pre, resp_keys)
   end
 
-  defp initialize_symmetric_state(protocol, prologue) do
-    protocol
-    |> SymmetricState.initialize()
-    |> SymmetricState.mix_hash(prologue)
+  @spec initiator?(t()) :: boolean()
+  def initiator?(%__MODULE__{initiator: initiator}), do: initiator
+
+  @spec complete?(t()) :: boolean()
+  def complete?(%__MODULE__{message_patterns: patterns}), do: patterns == []
+
+  @doc "What this party must do next: send a message, receive one, or `split/1`."
+  @spec next_action(t()) :: :write | :read | :split
+  def next_action(%__MODULE__{message_patterns: []}), do: :split
+  def next_action(%__MODULE__{initiator: true, message_patterns: [{:ini, _} | _]}), do: :write
+  def next_action(%__MODULE__{initiator: false, message_patterns: [{:resp, _} | _]}), do: :write
+  def next_action(%__MODULE__{}), do: :read
+
+  @doc "`GetHandshakeHash()` (spec §5.2); for channel binding (spec §11.2) once complete."
+  @spec handshake_hash(t()) :: binary()
+  def handshake_hash(%__MODULE__{symmetric_state: ss}), do: SymmetricState.handshake_hash(ss)
+
+  @doc "The remote static public key, once it is known."
+  @spec remote_static(t()) :: DH.pubkey() | nil
+  def remote_static(%__MODULE__{rs: rs}), do: rs
+
+  @doc "`WriteMessage(payload)` (spec §5.3). Returns the message to send to the peer."
+  @spec write_message(t(), binary()) :: {:ok, binary(), t()} | {:error, error()}
+  def write_message(%__MODULE__{message_patterns: []}, _payload),
+    do: {:error, :handshake_complete}
+
+  def write_message(%__MODULE__{message_patterns: [{_, tokens} | rest]} = state, payload)
+      when is_binary(payload) do
+    with :write <- next_action(state),
+         {:ok, prefix, state} <-
+           write_tokens(%__MODULE__{state | message_patterns: rest}, tokens, <<>>),
+         {:ok, cipher_text, state} <- encrypt_and_hash(state, payload),
+         message = <<prefix::binary, cipher_text::binary>>,
+         true <- byte_size(message) <= @max_message_length do
+      {:ok, message, state}
+    else
+      :read -> {:error, :wrong_turn}
+      false -> {:error, :message_too_long}
+      {:error, _} = error -> error
+    end
   end
 
-  defp resolve_keys(true, s, e, rs, re) do
-    {{pub(e), pub(s)}, {re, rs}}
+  @doc "`ReadMessage(message)` (spec §5.3). Returns the decrypted payload."
+  @spec read_message(t(), binary()) :: {:ok, binary(), t()} | {:error, error()}
+  def read_message(%__MODULE__{message_patterns: []}, _message), do: {:error, :handshake_complete}
+
+  def read_message(%__MODULE__{}, message) when byte_size(message) > @max_message_length do
+    {:error, :message_too_long}
   end
 
-  defp resolve_keys(false, s, e, rs, re) do
-    {{re, rs}, {pub(e), pub(s)}}
+  def read_message(%__MODULE__{message_patterns: [{_, tokens} | rest]} = state, message)
+      when is_binary(message) do
+    with :read <- next_action(state),
+         {:ok, rest_message, state} <-
+           read_tokens(%__MODULE__{state | message_patterns: rest}, tokens, message),
+         true <- not has_key?(state) or byte_size(rest_message) >= 16,
+         {:ok, payload, state} <- decrypt_and_hash(state, rest_message) do
+      {:ok, payload, state}
+    else
+      :write -> {:error, :wrong_turn}
+      false -> {:error, :malformed_message}
+      {:error, _} = error -> error
+    end
   end
 
-  defp pub({_, key}), do: key
+  @doc """
+  `Split()` (spec §5.2): `{c1, c2}` where `c1` encrypts initiator→responder
+  and `c2` responder→initiator. Raises unless the handshake is complete.
+  """
+  @spec split(t()) :: {CipherState.t(), CipherState.t()}
+  def split(%__MODULE__{message_patterns: [], symmetric_state: ss}), do: SymmetricState.split(ss)
+
+  def split(%__MODULE__{}) do
+    raise ArgumentError, "cannot split: handshake is not complete"
+  end
+
+  # --- initialization ------------------------------------------------------
+
+  defp validate_keys!(%Protocol{pattern: pattern, dhlen: dhlen}, initiator, opts) do
+    {me, peer} = if initiator, do: {:ini, :resp}, else: {:resp, :ini}
+
+    validate_static!(pattern, me, opts[:s])
+    validate_remote_static!(pattern, peer, opts[:rs])
+    validate_remote_ephemeral!(pattern, peer, opts[:re])
+    validate_psks!(pattern, opts[:psks])
+
+    validate_keypair!(opts[:s], :s, dhlen)
+    validate_keypair!(opts[:e], :e, dhlen)
+    validate_pubkey!(opts[:rs], :rs, dhlen)
+    validate_pubkey!(opts[:re], :re, dhlen)
+  end
+
+  defp validate_static!(pattern, me, nil) do
+    if Pattern.transmits?(pattern, me, :s) or Pattern.pre_shares?(pattern, me, :s) do
+      raise ArgumentError, "pattern #{pattern.name} requires the local static keypair (:s)"
+    end
+  end
+
+  defp validate_static!(_pattern, _me, _s), do: :ok
+
+  defp validate_remote_static!(pattern, peer, nil) do
+    if Pattern.pre_shares?(pattern, peer, :s) do
+      raise ArgumentError, "pattern #{pattern.name} requires the remote static public key (:rs)"
+    end
+  end
+
+  defp validate_remote_static!(pattern, peer, _rs) do
+    if Pattern.transmits?(pattern, peer, :s) do
+      raise ArgumentError,
+            "pattern #{pattern.name} transmits the remote static key; :rs must not be set"
+    end
+  end
+
+  defp validate_remote_ephemeral!(_pattern, _peer, nil), do: :ok
+
+  defp validate_remote_ephemeral!(pattern, peer, _re) do
+    if Pattern.transmits?(pattern, peer, :e) do
+      raise ArgumentError,
+            "pattern #{pattern.name} transmits the remote ephemeral key; :re must not be set"
+    end
+  end
+
+  defp validate_psks!(pattern, psks) do
+    expected = Pattern.psk_count(pattern)
+
+    if length(psks) != expected do
+      raise ArgumentError,
+            "pattern #{pattern.name} needs #{expected} pre-shared key(s), got #{length(psks)}"
+    end
+
+    unless Enum.all?(psks, &(is_binary(&1) and byte_size(&1) == 32)) do
+      raise ArgumentError, "pre-shared keys must be 32 bytes (spec §9.2)"
+    end
+  end
+
+  defp validate_keypair!(nil, _name, _dhlen), do: :ok
+
+  defp validate_keypair!({sec, pub}, _name, dhlen)
+       when is_binary(sec) and is_binary(pub) and byte_size(pub) == dhlen,
+       do: :ok
+
+  defp validate_keypair!(_other, name, dhlen) do
+    raise ArgumentError,
+          "#{name} must be a {private_key, public_key} tuple with a #{dhlen}-byte public key"
+  end
+
+  defp validate_pubkey!(nil, _name, _dhlen), do: :ok
+
+  defp validate_pubkey!(pub, _name, dhlen) when is_binary(pub) and byte_size(pub) == dhlen,
+    do: :ok
+
+  defp validate_pubkey!(_other, name, dhlen) do
+    raise ArgumentError, "#{name} must be a #{dhlen}-byte public key"
+  end
+
+  defp local_pubs(%__MODULE__{e: e, s: s}), do: {pub(e), pub(s)}
+  defp remote_pubs(%__MODULE__{re: re, rs: rs}), do: {re, rs}
+
+  defp pub({_sec, pub}), do: pub
   defp pub(nil), do: nil
 
-  defp process_pre_message(ss, [], _, _), do: ss
+  # Pre-messages (spec §7.1): only `e`, `s` and `e, s` are valid
+  defp mix_pre_message(state, [], _keys), do: state
+  defp mix_pre_message(state, [:s], {_e, s}), do: mix_hash(state, s)
+  defp mix_pre_message(state, [:e], {e, _s}), do: mix_ephemeral(state, e)
+  defp mix_pre_message(state, [:e, :s], {e, s}), do: state |> mix_ephemeral(e) |> mix_hash(s)
 
-  defp process_pre_message(ss, [:s], {_, s_key}, _) do
-    SymmetricState.mix_hash(ss, s_key)
+  # --- tokens ---------------------------------------------------------------
+
+  defp write_tokens(state, [], message), do: {:ok, message, state}
+
+  defp write_tokens(state, [token | rest], message) do
+    with {:ok, message, state} <- write_token(state, token, message) do
+      write_tokens(state, rest, message)
+    end
   end
 
-  defp process_pre_message(ss, [:e], {e_key, _}, is_psk) do
-    ss
-    |> SymmetricState.mix_hash(e_key)
-    |> maybe_mix_key(e_key, is_psk)
+  defp write_token(%__MODULE__{e: nil} = state, :e, message) do
+    write_token(%__MODULE__{state | e: Protocol.generate_keypair(state.protocol)}, :e, message)
   end
 
-  defp process_pre_message(ss, [:e, :s], {e_key, s_key}, is_psk) do
-    ss
-    |> SymmetricState.mix_hash(e_key)
-    |> maybe_mix_key(e_key, is_psk)
-    |> SymmetricState.mix_hash(s_key)
+  defp write_token(%__MODULE__{e: {_sec, pub}} = state, :e, message) do
+    {:ok, <<message::binary, pub::binary>>, mix_ephemeral(state, pub)}
   end
 
-  defp maybe_mix_key(ss, key, true), do: SymmetricState.mix_key(ss, key)
-  defp maybe_mix_key(ss, _key, false), do: ss
-
-  def write_message(%__MODULE__{message_patterns: []} = state, _payload) do
-    finalize(state)
+  defp write_token(%__MODULE__{s: {_sec, pub}} = state, :s, message) do
+    with {:ok, cipher_text, state} <- encrypt_and_hash(state, pub) do
+      {:ok, <<message::binary, cipher_text::binary>>, state}
+    end
   end
 
-  def write_message(%__MODULE__{} = state, payload) do
-    {act, state} =
-      Map.get_and_update!(state, :message_patterns, fn [{_type, act} | rest] -> {act, rest} end)
-
-    {message, state} = do_write_message(state, act, <<>>)
-    {cipher_text, state} = encrypt_and_hash(state, payload)
-    {message <> cipher_text, state}
+  defp write_token(state, token, message) do
+    with {:ok, state} <- mix_dh(state, token), do: {:ok, message, state}
   end
 
-  def read_message(%__MODULE__{message_patterns: []} = state, _message) do
-    finalize(state)
+  defp read_tokens(state, [], message), do: {:ok, message, state}
+
+  defp read_tokens(state, [token | rest], message) do
+    with {:ok, message, state} <- read_token(state, token, message) do
+      read_tokens(state, rest, message)
+    end
   end
 
-  def read_message(%__MODULE__{} = state, message) do
-    {act, state} =
-      Map.get_and_update!(state, :message_patterns, fn [{_type, act} | rest] -> {act, rest} end)
+  defp read_token(%__MODULE__{protocol: %Protocol{dhlen: dhlen}} = state, :e, message) do
+    case message do
+      <<re::binary-size(^dhlen), rest::binary>> ->
+        {:ok, rest, mix_ephemeral(%__MODULE__{state | re: re}, re)}
 
-    {message, state} = do_read_message(state, act, message)
-    decrypt_and_hash(state, message)
+      _ ->
+        {:error, :malformed_message}
+    end
   end
 
-  def finalize(%__MODULE__{message_patterns: []} = state) do
-    split(state)
+  defp read_token(%__MODULE__{protocol: %Protocol{dhlen: dhlen}} = state, :s, message) do
+    len = if has_key?(state), do: dhlen + 16, else: dhlen
+
+    with <<temp::binary-size(^len), rest::binary>> <- message,
+         {:ok, rs, state} <- decrypt_and_hash(state, temp) do
+      {:ok, rest, %__MODULE__{state | rs: rs}}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :malformed_message}
+    end
   end
 
-  # internal API
-
-  defp do_write_message(%__MODULE__{e: nil} = state, [:e | rest], msg) do
-    {_sec, pubkey} = e = Protocol.generate_keypair(state.protocol)
-
-    state =
-      state
-      |> Map.put(:e, e)
-      |> mix_hash(pubkey)
-
-    state = if psk_handshake?(state.protocol), do: mix_key(state, pubkey), else: state
-
-    do_write_message(state, rest, <<msg::binary, pubkey::binary>>)
+  defp read_token(state, token, message) do
+    with {:ok, state} <- mix_dh(state, token), do: {:ok, message, state}
   end
 
-  defp do_write_message(%__MODULE__{e: {_sec, pubkey}} = state, [:e | rest], msg) do
-    state =
-      state
-      |> mix_hash(pubkey)
-
-    state = if psk_handshake?(state.protocol), do: mix_key(state, pubkey), else: state
-
-    do_write_message(state, rest, <<msg::binary, pubkey::binary>>)
+  # In PSK handshakes the ephemeral is also mixed into the key (spec §9.2)
+  defp mix_ephemeral(state, pub) do
+    state = mix_hash(state, pub)
+    if Pattern.psk?(state.protocol.pattern), do: mix_key(state, pub), else: state
   end
 
-  defp do_write_message(%__MODULE__{s: {_sec, pubkey}} = state, [:s | rest], msg) do
-    {cipher_text, state} = encrypt_and_hash(state, pubkey)
-    do_write_message(state, rest, <<msg::binary, cipher_text::binary>>)
+  defp mix_dh(%__MODULE__{e: e, re: re} = state, :ee), do: dh(state, e, re)
+  defp mix_dh(%__MODULE__{initiator: true, e: e, rs: rs} = state, :es), do: dh(state, e, rs)
+  defp mix_dh(%__MODULE__{initiator: false, s: s, re: re} = state, :es), do: dh(state, s, re)
+  defp mix_dh(%__MODULE__{initiator: true, s: s, re: re} = state, :se), do: dh(state, s, re)
+  defp mix_dh(%__MODULE__{initiator: false, e: e, rs: rs} = state, :se), do: dh(state, e, rs)
+  defp mix_dh(%__MODULE__{s: s, rs: rs} = state, :ss), do: dh(state, s, rs)
+
+  defp mix_dh(%__MODULE__{psks: [psk | psks]} = state, :psk) do
+    {:ok, mix_key_and_hash(%__MODULE__{state | psks: psks}, psk)}
   end
 
-  defp do_write_message(%__MODULE__{e: e, re: re} = state, [:ee | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, e, re))
-    |> do_write_message(rest, msg)
+  defp dh(state, keypair, pubkey) do
+    with {:ok, shared_secret} <- Protocol.dh(state.protocol, keypair, pubkey) do
+      {:ok, mix_key(state, shared_secret)}
+    end
   end
 
-  defp do_write_message(%__MODULE__{initiator: true, e: e, rs: rs} = state, [:es | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, e, rs))
-    |> do_write_message(rest, msg)
-  end
+  # --- symmetric state delegation -------------------------------------------
 
-  defp do_write_message(%__MODULE__{initiator: false, s: s, re: re} = state, [:es | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, s, re))
-    |> do_write_message(rest, msg)
-  end
-
-  defp do_write_message(%__MODULE__{initiator: false, e: e, rs: rs} = state, [:se | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, e, rs))
-    |> do_write_message(rest, msg)
-  end
-
-  defp do_write_message(%__MODULE__{initiator: true, s: s, re: re} = state, [:se | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, s, re))
-    |> do_write_message(rest, msg)
-  end
-
-  defp do_write_message(%__MODULE__{s: s, rs: rs} = state, [:ss | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, s, rs))
-    |> do_write_message(rest, msg)
-  end
-
-  defp do_write_message(%__MODULE__{psks: [psk | psks]} = state, [:psk | rest], msg) do
-    state
-    |> Map.put(:psks, psks)
-    |> mix_key_and_hash(psk)
-    |> do_write_message(rest, msg)
-  end
-
-  defp do_write_message(%__MODULE__{} = state, [], msg), do: {msg, state}
-
-  defp do_read_message(%__MODULE__{re: nil} = state, [:e | rest], msg) do
-    dhlen = state.protocol.dhlen
-    <<re::binary-size(^dhlen), msg::binary>> = msg
-
-    state =
-      state
-      |> Map.put(:re, re)
-      |> mix_hash(re)
-
-    state = if psk_handshake?(state.protocol), do: mix_key(state, re), else: state
-
-    do_read_message(state, rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{rs: nil} = state, [:s | rest], msg) do
-    len = if has_key?(state), do: state.protocol.dhlen + 16, else: state.protocol.dhlen
-    <<temp::binary-size(^len), msg::binary>> = msg
-
-    {rs, state} = decrypt_and_hash(state, temp)
-
-    state
-    |> Map.put(:rs, rs)
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{e: e, re: re} = state, [:ee | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, e, re))
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{initiator: true, e: e, rs: rs} = state, [:es | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, e, rs))
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{initiator: false, s: s, re: re} = state, [:es | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, s, re))
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{initiator: false, e: e, rs: rs} = state, [:se | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, e, rs))
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{initiator: true, s: s, re: re} = state, [:se | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, s, re))
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{s: s, rs: rs} = state, [:ss | rest], msg) do
-    state
-    |> mix_key(Protocol.dh(state.protocol, s, rs))
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{psks: [psk | psks]} = state, [:psk | rest], msg) do
-    state
-    |> Map.put(:psks, psks)
-    |> mix_key_and_hash(psk)
-    |> do_read_message(rest, msg)
-  end
-
-  defp do_read_message(%__MODULE__{} = state, [], msg), do: {msg, state}
-
-  # sub-state functions
-
-  defp has_key?(%__MODULE__{symmetric_state: ss}) do
-    SymmetricState.has_key?(ss)
-  end
+  defp has_key?(%__MODULE__{symmetric_state: ss}), do: SymmetricState.has_key?(ss)
 
   defp mix_key(%__MODULE__{symmetric_state: ss} = state, ikm) do
     %__MODULE__{state | symmetric_state: SymmetricState.mix_key(ss, ikm)}
@@ -299,48 +385,14 @@ defmodule Noise.HandshakeState do
   end
 
   defp encrypt_and_hash(%__MODULE__{symmetric_state: ss} = state, plain_text) do
-    {cipher_text, ss} = SymmetricState.encrypt_and_hash(ss, plain_text)
-    {cipher_text, %__MODULE__{state | symmetric_state: ss}}
+    with {:ok, cipher_text, ss} <- SymmetricState.encrypt_and_hash(ss, plain_text) do
+      {:ok, cipher_text, %__MODULE__{state | symmetric_state: ss}}
+    end
   end
 
   defp decrypt_and_hash(%__MODULE__{symmetric_state: ss} = state, cipher_text) do
-    {plain_text, ss} = SymmetricState.decrypt_and_hash(ss, cipher_text)
-    {plain_text, %__MODULE__{state | symmetric_state: ss}}
+    with {:ok, plain_text, ss} <- SymmetricState.decrypt_and_hash(ss, cipher_text) do
+      {:ok, plain_text, %__MODULE__{state | symmetric_state: ss}}
+    end
   end
-
-  defp split(%__MODULE__{symmetric_state: ss} = state) do
-    {c, ss} = SymmetricState.split(ss)
-    {c, %__MODULE__{state | symmetric_state: ss}}
-  end
-
-  defp psk_handshake?(protocol) do
-    protocol.pattern.tokens
-    |> Enum.flat_map(fn {_role, tokens} -> tokens end)
-    |> Enum.member?(:psk)
-  end
-end
-
-defimpl Inspect, for: Noise.HandshakeState do
-  alias Noise.Utils
-
-  def inspect(state, opts) do
-    Inspect.Map.inspect(
-      %{
-        symmetric_state: state.symmetric_state,
-        s: inspect_key(state.s),
-        e: inspect_key(state.e),
-        rs: inspect_binary(state.rs),
-        re: inspect_binary(state.re),
-        psks: state.psks
-      },
-      opts
-    )
-  end
-
-  defp inspect_key(nil), do: nil
-  defp inspect_key({sec, pub}), do: %{sec: Utils.hex(sec), pub: Utils.hex(pub)}
-
-  defp inspect_binary(nil), do: nil
-  defp inspect_binary(bin) when is_binary(bin), do: Utils.hex(bin)
-  defp inspect_binary(other), do: other
 end
